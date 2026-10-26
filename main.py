@@ -10,6 +10,7 @@ from organizador.ventana import Ventana
 
 def main():
     app = QApplication(sys.argv)
+    app.setApplicationName("TVon")
     app.setStyle("Fusion")
     app.setStyleSheet(ESTILO)
     biblioteca = Biblioteca(Path(__file__).parent / "biblioteca.db")

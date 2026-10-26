@@ -36,6 +36,12 @@ class Biblioteca:
                 categoria_id INTEGER REFERENCES categorias(id) ON DELETE CASCADE,
                 PRIMARY KEY (archivo_id, categoria_id)
             );
+            -- ruta_sub NULL = el usuario desactivó los subtítulos de ese video
+            CREATE TABLE IF NOT EXISTS subtitulos (
+                ruta_video TEXT PRIMARY KEY,
+                ruta_sub   TEXT,
+                retraso_ms INTEGER NOT NULL DEFAULT 0
+            );
             """
         )
         self.con.commit()
@@ -122,13 +128,33 @@ class Biblioteca:
         return {f[0] for f in filas}
 
     def asignar(self, archivo_id: int, categoria_id: int, activa: bool) -> None:
+        self.asignar_varios([archivo_id], categoria_id, activa)
+
+    def asignar_varios(self, archivo_ids: list[int], categoria_id: int, activa: bool) -> None:
+        pares = [(aid, categoria_id) for aid in archivo_ids]
         if activa:
-            self.con.execute(
-                "INSERT OR IGNORE INTO archivo_categoria VALUES (?, ?)", (archivo_id, categoria_id)
-            )
+            self.con.executemany("INSERT OR IGNORE INTO archivo_categoria VALUES (?, ?)", pares)
         else:
-            self.con.execute(
-                "DELETE FROM archivo_categoria WHERE archivo_id = ? AND categoria_id = ?",
-                (archivo_id, categoria_id),
+            self.con.executemany(
+                "DELETE FROM archivo_categoria WHERE archivo_id = ? AND categoria_id = ?", pares
             )
+        self.con.commit()
+
+    # --- Subtítulos ----------------------------------------------------------
+
+    def subtitulos_de(self, ruta_video: str) -> tuple[str | None, int] | None:
+        """(ruta del subtítulo o None, retraso ms), o None si nunca se configuró."""
+        return self.con.execute(
+            "SELECT ruta_sub, retraso_ms FROM subtitulos WHERE ruta_video = ?", (ruta_video,)
+        ).fetchone()
+
+    def guardar_subtitulos(self, ruta_video: str, ruta_sub: str | None, retraso_ms: int) -> None:
+        self.con.execute(
+            "INSERT OR REPLACE INTO subtitulos VALUES (?, ?, ?)", (ruta_video, ruta_sub, retraso_ms)
+        )
+        self.con.commit()
+
+    def quitar_archivos(self, archivo_ids: list[int]) -> None:
+        """Quita varios archivos de la biblioteca (no los borra del disco)."""
+        self.con.executemany("DELETE FROM archivos WHERE id = ?", [(a,) for a in archivo_ids])
         self.con.commit()
