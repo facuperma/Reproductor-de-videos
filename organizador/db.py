@@ -1,9 +1,15 @@
 """Persistencia en SQLite: archivos, categorías y su relación."""
+import re
 import sqlite3
 from pathlib import Path
 
 EXT_VIDEO = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".m4v", ".flv", ".mpg", ".mpeg"}
 EXT_IMAGEN = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"}
+
+
+def orden_natural(nombre: str) -> list:
+    """Clave para ordenar nombres respetando los números: «Cap 2» < «Cap 10»."""
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", nombre.lower())]
 
 
 def tipo_de(ruta: Path) -> str | None:
@@ -15,9 +21,26 @@ def tipo_de(ruta: Path) -> str | None:
     return None
 
 
+CONFIG_DEFECTO = {
+    "carpeta_descargas": str(Path.home() / "Videos" / "TVon"),
+    "idiomas_subtitulos": "es,en",
+    "os_api_key": "",
+    "os_usuario": "",
+    "os_clave": "",
+    "auto_activa": "0",
+    "auto_max_peliculas": "20",
+    "auto_max_gb": "50",
+}
+
+CATEGORIA_DOMINIO_PUBLICO = "Dominio público"
+
+
 class Biblioteca:
+    """Acceso a la base. Cada hilo debe usar su propia instancia (SQLite no comparte conexiones)."""
+
     def __init__(self, ruta_db: Path):
-        self.con = sqlite3.connect(ruta_db)
+        self.ruta_db = ruta_db
+        self.con = sqlite3.connect(ruta_db, timeout=15)
         self.con.execute("PRAGMA foreign_keys = ON")
         self.con.executescript(
             """
@@ -42,9 +65,99 @@ class Biblioteca:
                 ruta_sub   TEXT,
                 retraso_ms INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS config (
+                clave TEXT PRIMARY KEY,
+                valor TEXT
+            );
+            -- Películas del Internet Archive.
+            -- estado: pendiente | descargando | completa | error | cancelada
+            --         | omitida (no se baja) | archivada (completa, oculta de la lista)
+            --         | eliminada (se borró del disco; no se vuelve a bajar sola)
+            CREATE TABLE IF NOT EXISTS descargas (
+                identificador TEXT PRIMARY KEY,
+                titulo        TEXT NOT NULL,
+                anio          TEXT,
+                estado        TEXT NOT NULL DEFAULT 'pendiente',
+                ruta          TEXT,
+                tamano        INTEGER,
+                recibido      INTEGER NOT NULL DEFAULT 0,
+                error         TEXT,
+                creada        REAL NOT NULL DEFAULT (julianday('now'))
+            );
             """
         )
         self.con.commit()
+
+    # --- Configuración ------------------------------------------------------
+
+    def config(self, clave: str) -> str:
+        fila = self.con.execute("SELECT valor FROM config WHERE clave = ?", (clave,)).fetchone()
+        return fila[0] if fila and fila[0] is not None else CONFIG_DEFECTO.get(clave, "")
+
+    def guardar_config(self, clave: str, valor: str) -> None:
+        self.con.execute("INSERT OR REPLACE INTO config VALUES (?, ?)", (clave, valor))
+        self.con.commit()
+
+    # --- Descargas ----------------------------------------------------------
+
+    def agregar_descarga(self, identificador: str, titulo: str, anio: str | None,
+                         tamano: int | None = None, estado: str = "pendiente") -> bool:
+        cur = self.con.execute(
+            "INSERT OR IGNORE INTO descargas (identificador, titulo, anio, tamano, estado) VALUES (?, ?, ?, ?, ?)",
+            (identificador, titulo, anio, tamano, estado),
+        )
+        self.con.commit()
+        return cur.rowcount > 0
+
+    def actualizar_descarga(self, identificador: str, **campos) -> None:
+        asignaciones = ", ".join(f"{k} = ?" for k in campos)
+        self.con.execute(f"UPDATE descargas SET {asignaciones} WHERE identificador = ?",
+                         (*campos.values(), identificador))
+        self.con.commit()
+
+    def listar_descargas(self) -> list[sqlite3.Row]:
+        cur = self.con.cursor()
+        cur.row_factory = sqlite3.Row
+        return cur.execute(
+            "SELECT * FROM descargas WHERE estado NOT IN ('omitida', 'archivada', 'eliminada') ORDER BY "
+            "CASE estado WHEN 'descargando' THEN 0 WHEN 'pendiente' THEN 1 ELSE 2 END, creada DESC"
+        ).fetchall()
+
+    def siguiente_descarga(self) -> sqlite3.Row | None:
+        cur = self.con.cursor()
+        cur.row_factory = sqlite3.Row
+        return cur.execute(
+            "SELECT * FROM descargas WHERE estado = 'pendiente' ORDER BY creada LIMIT 1"
+        ).fetchone()
+
+    def estados_descarga(self) -> dict[str, str]:
+        return dict(self.con.execute("SELECT identificador, estado FROM descargas"))
+
+    def ruta_descarga(self, identificador: str) -> str | None:
+        fila = self.con.execute("SELECT ruta FROM descargas WHERE identificador = ?", (identificador,)).fetchone()
+        return fila[0] if fila else None
+
+    def resumen_descargas(self) -> tuple[int, int]:
+        """(cantidad, bytes) de las películas descargadas o en cola."""
+        n, total = self.con.execute(
+            "SELECT COUNT(*), COALESCE(SUM(tamano), 0) FROM descargas "
+            "WHERE estado IN ('pendiente', 'descargando', 'completa', 'archivada')"
+        ).fetchone()
+        return n, total
+
+    def reiniciar_descargas_interrumpidas(self) -> None:
+        self.con.execute("UPDATE descargas SET estado = 'pendiente' WHERE estado = 'descargando'")
+        self.con.commit()
+
+    def categoria_id(self, nombre: str) -> int:
+        """Id de la categoría; la crea si no existe."""
+        self.con.execute("INSERT OR IGNORE INTO categorias (nombre) VALUES (?)", (nombre,))
+        self.con.commit()
+        return self.con.execute("SELECT id FROM categorias WHERE nombre = ?", (nombre,)).fetchone()[0]
+
+    def id_de_ruta(self, ruta: str) -> int | None:
+        fila = self.con.execute("SELECT id FROM archivos WHERE ruta = ?", (ruta,)).fetchone()
+        return fila[0] if fila else None
 
     # --- Archivos ---------------------------------------------------------
 
@@ -94,8 +207,8 @@ class Biblioteca:
             params.append(f"%{texto}%")
         if condiciones:
             sql += " WHERE " + " AND ".join(condiciones)
-        sql += " ORDER BY a.nombre COLLATE NOCASE"
-        return self.con.execute(sql, params).fetchall()
+        filas = self.con.execute(sql, params).fetchall()
+        return sorted(filas, key=lambda f: orden_natural(f[2]))
 
     # --- Categorías -------------------------------------------------------
 
@@ -139,6 +252,26 @@ class Biblioteca:
                 "DELETE FROM archivo_categoria WHERE archivo_id = ? AND categoria_id = ?", pares
             )
         self.con.commit()
+
+    def siguiente_en_categoria(self, ruta_video: str) -> str | None:
+        """Siguiente capítulo: el video que sigue, en orden natural de nombre
+        («Cap 2» antes que «Cap 10»), entre los que comparten categoría con este."""
+        if not re.search(r"\d", Path(ruta_video).name):
+            return None
+        filas = self.con.execute(
+            """
+            SELECT DISTINCT a.ruta, a.nombre FROM archivos a
+            JOIN archivo_categoria ac ON ac.archivo_id = a.id
+            WHERE a.tipo = 'video' AND ac.categoria_id IN (
+                SELECT ac2.categoria_id FROM archivo_categoria ac2
+                JOIN archivos a2 ON a2.id = ac2.archivo_id WHERE a2.ruta = ?)
+            """,
+            (ruta_video,),
+        ).fetchall()
+        rutas = [ruta for ruta, nombre in sorted(filas, key=lambda f: orden_natural(f[1]))]
+        if ruta_video not in rutas:
+            return None
+        return next((r for r in rutas[rutas.index(ruta_video) + 1:] if Path(r).exists()), None)
 
     # --- Subtítulos ----------------------------------------------------------
 

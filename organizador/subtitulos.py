@@ -54,14 +54,31 @@ class Subtitulos:
         return "\n".join(t for a, b, t in self.cues[max(0, i - 5):i] if a <= ms < b)
 
 
-def buscar_junto_a(ruta_video: str) -> str | None:
-    """Busca subtítulos con el mismo nombre del video, como hace VLC
-    (video.srt, video.es.srt, …), priorizando el nombre exacto."""
+IDIOMAS = {"es": "Español", "spa": "Español", "en": "Inglés", "eng": "Inglés"}
+
+
+def subtitulos_junto_a(ruta_video: str) -> list[str]:
+    """Subtítulos con el mismo nombre del video, como hace VLC (video.srt, video.es.srt, …).
+    Orden de preferencia: nombre exacto, español, el resto alfabético."""
     video = Path(ruta_video)
     candidatos = [
         p for p in video.parent.glob(glob.escape(video.stem) + "*")
         if p.suffix.lower() in EXT_SUBTITULOS
         and (p.stem == video.stem or p.stem.startswith(video.stem + "."))
     ]
-    candidatos.sort(key=lambda p: (p.stem != video.stem, p.name.lower()))
-    return str(candidatos[0]) if candidatos else None
+    candidatos.sort(key=lambda p: (p.stem != video.stem,
+                                   IDIOMAS.get(p.stem.rsplit(".", 1)[-1].lower()) != "Español",
+                                   p.name.lower()))
+    return [str(p) for p in candidatos]
+
+
+def buscar_junto_a(ruta_video: str) -> str | None:
+    candidatos = subtitulos_junto_a(ruta_video)
+    return candidatos[0] if candidatos else None
+
+
+def descripcion(ruta_sub: str, ruta_video: str) -> str:
+    """«video.es.srt» -> «Español (video.es.srt)»."""
+    extra = Path(ruta_sub).stem[len(Path(ruta_video).stem):].strip(".")
+    nombre = Path(ruta_sub).name
+    return f"{IDIOMAS.get(extra.lower(), extra)} ({nombre})" if extra else nombre

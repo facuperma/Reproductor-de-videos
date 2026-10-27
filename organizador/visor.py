@@ -1,4 +1,5 @@
 """Panel que muestra una imagen o reproduce un video con sus controles y subtítulos."""
+import math
 from pathlib import Path
 
 from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, QTimer, QUrl, Signal
@@ -7,11 +8,11 @@ from PySide6.QtGui import (
 )
 from PySide6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
-    QDoubleSpinBox, QFileDialog, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
+    QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
     QSizePolicy, QSlider, QStackedWidget, QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .subtitulos import Subtitulos, buscar_junto_a
+from .subtitulos import Subtitulos, buscar_junto_a, descripcion, subtitulos_junto_a
 
 TAMANOS_SUB = [("Chico", 0.75), ("Normal", 1.0), ("Grande", 1.3), ("Muy grande", 1.6)]
 
@@ -22,11 +23,14 @@ def atajos_reproductor(ventana: QWidget, visor: "Visor", alternar_completa):
         ("Space", visor.alternar_play),
         ("Right", lambda: visor.adelantar(5000)),
         ("Left", lambda: visor.adelantar(-5000)),
+        ("Shift+Right", lambda: visor.adelantar(15000)),
+        ("Shift+Left", lambda: visor.adelantar(-15000)),
         ("F", alternar_completa),
         ("Escape", lambda: ventana.isFullScreen() and alternar_completa()),
         # Igual que VLC: G adelanta los subtítulos, H los atrasa (50 ms)
         ("G", lambda: visor.ajustar_retraso(-50)),
         ("H", lambda: visor.ajustar_retraso(50)),
+        ("N", visor.siguiente_capitulo),
     ):
         QShortcut(QKeySequence(tecla), ventana).activated.connect(accion)
 
@@ -65,6 +69,7 @@ class PantallaVideo(QWidget):
         self._texto = ""
         self._osd = ""
         self.escala_sub = 1.0
+        self.panel: QWidget | None = None  # aviso flotante abajo a la derecha
         self._timer_osd = QTimer(self, singleShot=True, interval=1500)
         self._timer_osd.timeout.connect(lambda: self._set_osd(""))
 
@@ -89,6 +94,14 @@ class PantallaVideo(QWidget):
         self._frame = None
         self._texto = ""
         self.update()
+
+    def colocar_panel(self):
+        if self.panel is not None:
+            self.panel.adjustSize()
+            self.panel.move(self.width() - self.panel.width() - 24, self.height() - self.panel.height() - 24)
+
+    def resizeEvent(self, e):
+        self.colocar_panel()
 
     def mouseDoubleClickEvent(self, e):
         self.doble_clic.emit()
@@ -175,9 +188,20 @@ class Visor(QWidget):
     pedir_pantalla_completa = Signal()
     # (ruta del video, ruta del subtítulo o None, retraso en ms)
     subtitulos_cambiados = Signal(str, object, int)
+    # Ruta del capítulo que hay que reproducir a continuación
+    reproducir_siguiente = Signal(str)
+    # Pide buscar subtítulos en internet para este video (lo resuelve quien usa el visor)
+    buscar_subtitulos_online = Signal(str)
+
+    # El aviso del siguiente capítulo aparece cuando falta esto para el final
+    AVISO_SIGUIENTE_MS = 10_000
 
     def __init__(self):
         super().__init__()
+        # Función (ruta del video) -> ruta del siguiente capítulo o None; la asigna quien usa el visor
+        self.buscar_siguiente = None
+        self._ruta_siguiente: str | None = None
+        self._siguiente_cancelado = False
         self.ruta_video: str | None = None
         self._posicion_pendiente = 0
         self.subs: Subtitulos | None = None
@@ -205,6 +229,10 @@ class Visor(QWidget):
         estilo = self.style()
         self.btn_play = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaPlay), toolTip="Reproducir / pausar (Espacio)")
         self.btn_stop = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaStop), toolTip="Detener")
+        self.btn_siguiente = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaSkipForward),
+                                         toolTip="Siguiente capítulo de la categoría (N)")
+        self.btn_atras15 = QPushButton("↺ 15", toolTip="Retroceder 15 segundos (Shift+←)")
+        self.btn_adelante15 = QPushButton("15 ↻", toolTip="Adelantar 15 segundos (Shift+→)")
         self.barra = QSlider(Qt.Horizontal)
         self.lbl_tiempo = QLabel("0:00 / 0:00")
         self.btn_mute = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaVolume), toolTip="Silenciar")
@@ -219,7 +247,7 @@ class Visor(QWidget):
         self.controles = QWidget()
         self._fila_controles = fila = QHBoxLayout(self.controles)
         fila.setContentsMargins(4, 4, 4, 0)
-        for w in (self.btn_play, self.btn_stop):
+        for w in (self.btn_atras15, self.btn_play, self.btn_adelante15, self.btn_stop, self.btn_siguiente):
             fila.addWidget(w)
         fila.addWidget(self.barra, 1)
         for w in (self.lbl_tiempo, self.btn_mute, self.volumen, self.btn_subs, self.btn_completa):
@@ -241,8 +269,28 @@ class Visor(QWidget):
         fila_subs.addWidget(btn_reiniciar)
         fila_subs.addWidget(QLabel("(G / H)", objectName="pista"))
 
-        for b in (self.btn_play, self.btn_stop, self.btn_mute, self.btn_subs, self.btn_completa,
-                  btn_reiniciar, self.barra, self.volumen):
+        # Aviso de siguiente capítulo, sobre el video
+        self.panel_sig = QFrame(self.pantalla, objectName="panelSiguiente")
+        self.lbl_sig_cuenta = QLabel(objectName="titulo")
+        self.lbl_sig_nombre = QLabel()
+        btn_ahora = QPushButton("▶ Reproducir ahora")
+        btn_cancelar = QPushButton("Cancelar")
+        btn_ahora.clicked.connect(self._reproducir_siguiente)
+        btn_cancelar.clicked.connect(self._cancelar_siguiente)
+        capa_sig = QVBoxLayout(self.panel_sig)
+        capa_sig.setContentsMargins(16, 12, 16, 12)
+        capa_sig.addWidget(self.lbl_sig_cuenta)
+        capa_sig.addWidget(self.lbl_sig_nombre)
+        fila_sig = QHBoxLayout()
+        fila_sig.addWidget(btn_ahora)
+        fila_sig.addWidget(btn_cancelar)
+        capa_sig.addLayout(fila_sig)
+        self.panel_sig.hide()
+        self.pantalla.panel = self.panel_sig
+
+        for b in (self.btn_play, self.btn_stop, self.btn_siguiente, self.btn_atras15,
+                  self.btn_adelante15, self.btn_mute, self.btn_subs,
+                  self.btn_completa, btn_reiniciar, self.barra, self.volumen, btn_ahora, btn_cancelar):
             b.setFocusPolicy(Qt.NoFocus)
 
         capa = QVBoxLayout(self)
@@ -258,6 +306,9 @@ class Visor(QWidget):
 
         self.btn_play.clicked.connect(self.alternar_play)
         self.btn_stop.clicked.connect(self.reproductor.stop)
+        self.btn_siguiente.clicked.connect(self.siguiente_capitulo)
+        self.btn_atras15.clicked.connect(lambda: self.adelantar(-15000))
+        self.btn_adelante15.clicked.connect(lambda: self.adelantar(15000))
         self.btn_completa.clicked.connect(self.pedir_pantalla_completa)
         self.pantalla.doble_clic.connect(self.pedir_pantalla_completa)
         self.imagen.doble_clic.connect(self.pedir_pantalla_completa)
@@ -286,6 +337,7 @@ class Visor(QWidget):
         """config_sub: (ruta del subtítulo o None, retraso ms) guardado para este video,
         o None si nunca se configuró (entonces se buscan subtítulos junto al video).
         posicion_ms: punto desde el que arranca el video."""
+        self._reiniciar_siguiente()
         self.reproductor.stop()
         self.reproductor.setSource(QUrl())
         self.pantalla.limpiar()
@@ -325,7 +377,8 @@ class Visor(QWidget):
 
     def adelantar(self, ms: int):
         if self._es_video:
-            self.reproductor.setPosition(max(0, self.reproductor.position() + ms))
+            destino = self.reproductor.position() + ms
+            self.reproductor.setPosition(max(0, min(destino, self.reproductor.duration())))
 
     # --- Pantalla completa ----------------------------------------------------
 
@@ -448,10 +501,17 @@ class Visor(QWidget):
         m = self.menu_subs
         m.clear()
         m.addAction("Cargar archivo de subtítulos…", self._elegir_archivo_subs).setEnabled(self._es_video)
-        if self.ruta_sub:
-            actual = m.addAction(f"Archivo: {Path(self.ruta_sub).name}")
-            actual.setCheckable(True)
-            actual.setChecked(True)
+        m.addAction("🌐 Buscar en internet (OpenSubtitles)",
+                    lambda: self.buscar_subtitulos_online.emit(self.ruta_video)).setEnabled(self._es_video)
+        junto = subtitulos_junto_a(self.ruta_video) if self.ruta_video else []
+        if self.ruta_sub and self.ruta_sub not in junto:
+            junto.append(self.ruta_sub)
+        if junto:
+            m.addSection("Archivos de subtítulos")
+        for ruta in junto:
+            accion = m.addAction(descripcion(ruta, self.ruta_video), lambda r=ruta: self.cargar_subtitulos(r))
+            accion.setCheckable(True)
+            accion.setChecked(ruta == self.ruta_sub)
         pistas = self.reproductor.subtitleTracks()
         activa = self.reproductor.activeSubtitleTrack()
         if pistas:
@@ -489,12 +549,68 @@ class Visor(QWidget):
             self.barra.setValue(pos)
         self.lbl_tiempo.setText(f"{formato_tiempo(pos)} / {formato_tiempo(self.reproductor.duration())}")
         self._actualizar_subtitulo()
+        self._revisar_siguiente(pos)
 
     def _estado_medio(self, estado):
         # La posición inicial solo se puede aplicar cuando el video terminó de cargar
         if self._posicion_pendiente and estado in (QMediaPlayer.LoadedMedia, QMediaPlayer.BufferedMedia):
             self.reproductor.setPosition(self._posicion_pendiente)
             self._posicion_pendiente = 0
+        elif estado == QMediaPlayer.EndOfMedia:
+            self._fin_del_video()
+
+    # --- Siguiente capítulo ---------------------------------------------------
+
+    def _buscar_siguiente(self) -> str | None:
+        if self.buscar_siguiente and self.ruta_video:
+            return self.buscar_siguiente(self.ruta_video)
+        return None
+
+    def siguiente_capitulo(self):
+        if not self._es_video:
+            return
+        if siguiente := self._buscar_siguiente():
+            self.reproducir_siguiente.emit(siguiente)
+        else:
+            self.pantalla.mostrar_osd("No hay un capítulo siguiente en esta categoría")
+
+    def _revisar_siguiente(self, pos: int):
+        """Muestra el aviso en los últimos segundos; la cuenta sigue al video,
+        así que se frena con la pausa y desaparece si se retrocede."""
+        dur = self.reproductor.duration()
+        if not self._es_video or dur <= 0 or self._siguiente_cancelado:
+            return
+        restante = dur - pos
+        if restante > self.AVISO_SIGUIENTE_MS:
+            self.panel_sig.hide()
+            return
+        if self._ruta_siguiente is None:
+            self._ruta_siguiente = self._buscar_siguiente()
+            if self._ruta_siguiente is None:
+                self._siguiente_cancelado = True  # no hay siguiente: no volver a buscar
+                return
+            self.lbl_sig_nombre.setText(Path(self._ruta_siguiente).stem)
+        self.lbl_sig_cuenta.setText(f"Siguiente capítulo en {max(1, math.ceil(restante / 1000))} s")
+        if not self.panel_sig.isVisible():
+            self.panel_sig.show()
+            self.pantalla.colocar_panel()
+
+    def _fin_del_video(self):
+        if not self._siguiente_cancelado:
+            self._reproducir_siguiente()
+
+    def _reproducir_siguiente(self):
+        if ruta := self._ruta_siguiente or self._buscar_siguiente():
+            self.reproducir_siguiente.emit(ruta)
+
+    def _cancelar_siguiente(self):
+        self._siguiente_cancelado = True
+        self.panel_sig.hide()
+
+    def _reiniciar_siguiente(self):
+        self._siguiente_cancelado = False
+        self._ruta_siguiente = None
+        self.panel_sig.hide()
 
     def _duracion(self, dur: int):
         self.barra.setRange(0, dur)

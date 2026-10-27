@@ -12,8 +12,12 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .db import EXT_IMAGEN, EXT_VIDEO, Biblioteca
+from .db import CATEGORIA_DOMINIO_PUBLICO, EXT_IMAGEN, EXT_VIDEO, Biblioteca
+from .descargas import GestorDescargas
+from .dialogo_config import DialogoConfig
+from .dominio_publico import VentanaDominioPublico
 from .subtitulos import EXT_SUBTITULOS
+from .subtitulos_online import buscar_para_visor
 from .ventana_video import VentanaVideo
 from .visor import Visor, atajos_reproductor
 
@@ -32,6 +36,10 @@ class Ventana(QMainWindow):
         self.bib = biblioteca
         self.filtro = ("todos", None)
         self.ventanas_video: list[VentanaVideo] = []
+        self.ventana_dominio: VentanaDominioPublico | None = None
+        self.gestor = GestorDescargas(biblioteca.ruta_db)
+        self.gestor.pelicula_lista.connect(self._pelicula_descargada)
+        self.gestor.mensaje.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.setWindowTitle("TVon")
         self.resize(1400, 820)
         self.setAcceptDrops(True)
@@ -82,6 +90,9 @@ class Ventana(QMainWindow):
         self.visor = Visor()
         self.visor.pedir_pantalla_completa.connect(self._alternar_pantalla_completa)
         self.visor.subtitulos_cambiados.connect(self.bib.guardar_subtitulos)
+        self.visor.buscar_siguiente = self.bib.siguiente_en_categoria
+        self.visor.reproducir_siguiente.connect(self._reproducir_capitulo)
+        self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, self.bib, self))
 
         self.lbl_nombre = QLabel(objectName="titulo")
         self.lbl_nombre.setWordWrap(True)
@@ -140,6 +151,7 @@ class Ventana(QMainWindow):
         self._atajos()
         self._cargar_filtros()
         self._mostrar_detalles(None)
+        self.gestor.iniciar()
 
     # --- Construcción -------------------------------------------------------
 
@@ -153,6 +165,9 @@ class Ventana(QMainWindow):
         acc_carpeta.triggered.connect(self._agregar_carpeta)
         barra.addAction(acc_archivos)
         barra.addAction(acc_carpeta)
+        barra.addSeparator()
+        barra.addAction("🎞 Dominio público", self._abrir_dominio_publico)
+        barra.addAction("⚙ Configuración", lambda: DialogoConfig(self.bib, self).exec())
         barra.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         espacio = QWidget()
         espacio.setFixedWidth(20)
@@ -463,6 +478,17 @@ class Ventana(QMainWindow):
             self.bib.quitar_archivos(ids)
             self._cargar_filtros()
 
+    def _reproducir_capitulo(self, ruta: str):
+        """Pasa al siguiente capítulo seleccionándolo en la lista, si está visible."""
+        for i in range(self.lista.topLevelItemCount()):
+            item = self.lista.topLevelItem(i)
+            if item.data(0, ROL)[1] == ruta:
+                self.lista.setCurrentItem(item)
+                self.lista.scrollToItem(item)
+                return
+        # Con un filtro o búsqueda que lo oculta, se reproduce igual
+        self.visor.mostrar(ruta, "video", self.bib.subtitulos_de(ruta))
+
     # --- Ventanas flotantes ---------------------------------------------------
 
     def _abrir_en_ventana(self, archivos: list):
@@ -486,9 +512,40 @@ class Ventana(QMainWindow):
             ventana.show()
 
     def closeEvent(self, e):
-        for ventana in list(self.ventanas_video):
-            ventana.close()
+        # Una descarga a medias queda en cola y se retoma al volver a abrir TVon
+        self.gestor.detener()
+        for ventana in [*self.ventanas_video, self.ventana_dominio]:
+            if ventana:
+                ventana.close()
         super().closeEvent(e)
+
+    # --- Dominio público --------------------------------------------------------
+
+    def _abrir_dominio_publico(self):
+        if self.ventana_dominio is None:
+            self.ventana_dominio = VentanaDominioPublico(self.bib, self.gestor)
+            self.ventana_dominio.pelicula_por_eliminar.connect(self._soltar_archivo)
+            self.ventana_dominio.biblioteca_cambiada.connect(self._cargar_filtros)
+        self.ventana_dominio.show()
+        self.ventana_dominio.raise_()
+        self.ventana_dominio.activateWindow()
+
+    def _soltar_archivo(self, ruta: str):
+        """Deja de reproducir un archivo que se va a borrar (Windows no deja borrar uno abierto)."""
+        objetivo = Path(ruta).resolve()
+        if self.visor.ruta_video and Path(self.visor.ruta_video).resolve() == objetivo:
+            self.visor.mostrar(None, None)
+        for ventana in list(self.ventanas_video):
+            if ventana.visor.ruta_video and Path(ventana.visor.ruta_video).resolve() == objetivo:
+                ventana.close()
+        QApplication.processEvents()  # que el reproductor termine de cerrar el archivo
+
+    def _pelicula_descargada(self, ruta: str):
+        self.bib.agregar_archivos([Path(ruta)])
+        if (aid := self.bib.id_de_ruta(str(Path(ruta).resolve()))) is not None:
+            self.bib.asignar(aid, self.bib.categoria_id(CATEGORIA_DOMINIO_PUBLICO), True)
+        self._cargar_filtros()
+        self.statusBar().showMessage(f"Descargada y agregada a la biblioteca: {Path(ruta).stem}", 8000)
 
     def _abrir_ubicacion(self):
         ruta = self.txt_ruta.text()

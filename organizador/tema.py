@@ -7,6 +7,10 @@ QToolButton { padding: 6px 10px; border-radius: 6px; }
 QToolButton:hover { background: #1f2d4d; }
 QLabel#titulo { font-size: 11pt; font-weight: 600; color: #ffffff; }
 QLabel#pista { color: #7a8599; }
+QFrame#panelSiguiente {
+    background: rgba(15, 23, 41, 225); border: 1px solid #3d7bfd; border-radius: 10px;
+}
+QFrame#panelSiguiente QLabel { background: transparent; }
 QDoubleSpinBox { background: #131d33; border: 1px solid #24334f; border-radius: 6px; padding: 3px 6px; }
 QToolButton::menu-indicator { image: none; }
 QLabel#vacio { color: #7a8599; font-size: 12pt; background: #0a1020; }
