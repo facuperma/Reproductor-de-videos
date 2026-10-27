@@ -44,6 +44,8 @@ def iscc() -> Path:
 
 def main():
     v = version()
+    print("== Ícono")
+    subprocess.run([sys.executable, str(RAIZ / "empaquetado" / "generar_icono.py")], check=True)
     print(f"== TVon {v}: ejecutable")
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", "TVon",
