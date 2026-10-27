@@ -4,16 +4,28 @@
 
 Aplicación de escritorio para organizar y ver videos e imágenes por categorías.
 
-## Instalación
+## Descargar (Windows 10/11, 64 bits)
+
+**[⬇ TVon-Setup-1.0.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.0.0.exe)** (28 MB)
+
+Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
+
+Como el instalador no está firmado digitalmente, Windows puede mostrar «Windows protegió su PC»: tocá **Más información → Ejecutar de todas formas**.
+
+La biblioteca y la configuración se guardan en `%LOCALAPPDATA%\TVon`.
+
+## Desde el código fuente
 
 ```
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
 
-## Uso
+Doble clic en `TVon.bat` o `.venv\Scripts\python main.py` (la biblioteca queda en la carpeta del proyecto).
 
-Doble clic en `TVon.bat` o `.venv\Scripts\python main.py`.
+Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scripts\python empaquetado\construir.py` (requiere [Inno Setup 6](https://jrsoftware.org/isinfo.php)). Queda en `compilado\`.
+
+## Uso
 
 - **Agregar archivos / carpeta** (o arrastrarlos a la ventana). Las carpetas se recorren con subcarpetas.
 - Los archivos no se copian ni se mueven: solo se guarda su ruta en `biblioteca.db`.

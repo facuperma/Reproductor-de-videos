@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -8,6 +9,21 @@ from organizador.db import Biblioteca
 from organizador.tema import ESTILO
 from organizador.ventana import Ventana
 
+VERSION = "1.0.0"
+
+# Empaquetado con PyInstaller, los recursos están en sys._MEIPASS
+RECURSOS = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+
+
+def carpeta_datos() -> Path:
+    """Dónde se guarda la biblioteca. Instalada, la carpeta del programa no admite escritura,
+    así que se usa %LOCALAPPDATA%\\TVon; desde el código fuente, la carpeta del proyecto."""
+    if getattr(sys, "frozen", False):
+        carpeta = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "TVon"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        return carpeta
+    return Path(__file__).parent
+
 
 def main():
     if sys.platform == "win32":
@@ -16,10 +32,11 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TVon")
     app = QApplication(sys.argv)
     app.setApplicationName("TVon")
-    app.setWindowIcon(QIcon(str(Path(__file__).parent / "organizador" / "icono.png")))
+    app.setApplicationVersion(VERSION)
+    app.setWindowIcon(QIcon(str(RECURSOS / "organizador" / "icono.png")))
     app.setStyle("Fusion")
     app.setStyleSheet(ESTILO)
-    biblioteca = Biblioteca(Path(__file__).parent / "biblioteca.db")
+    biblioteca = Biblioteca(carpeta_datos() / "biblioteca.db")
     ventana = Ventana(biblioteca)
     ventana.show()
     sys.exit(app.exec())
