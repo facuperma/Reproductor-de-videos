@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.1.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.1.0.exe)** (28 MB)
+**[⬇ TVon-Setup-1.1.1.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.1.1.exe)** (28 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -34,6 +34,7 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 - Panel derecho: visor, ruta del archivo, "Abrir ubicación" y casillas para asignar categorías.
 - Un clic en un video muestra una **vista previa** (un cuadro del video, sin sonido): se reproduce con clic sobre la imagen, ▶ o Espacio, siempre desde el principio.
 - Al elegir una categoría que tiene **un solo video** (una película), se selecciona solo y, si dura más de una hora, empieza a reproducirse.
+- Botones **🌐 Películas** ([ext.to](https://ext.to/)) y **🌐 Subtítulos** ([subdivx.com](https://subdivx.com/)) en la barra superior: abren esas páginas en el navegador. Lo que descargues ahí termina en Descargas y TVon lo mueve solo a Videos.
 
 ### Biblioteca automática
 
@@ -104,3 +105,7 @@ Marcá **⏻ Apagar al terminar** en los controles: cuando termine el video (en 
 | Supr | Eliminar los archivos seleccionados (a la Papelera) |
 | G / H | Subtítulos 50 ms antes / después |
 | Ctrl+F | Buscar |
+
+## Licencia
+
+Código abierto bajo la [licencia MIT](LICENSE). © 2026 Faierwall.

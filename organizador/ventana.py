@@ -3,8 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
+from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout,
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
@@ -196,6 +196,11 @@ class Ventana(QMainWindow):
         barra.addSeparator()
         barra.addAction("🎞 Dominio público", self._abrir_dominio_publico)
         barra.addAction("⚙ Configuración", self._abrir_configuracion)
+        barra.addSeparator()
+        # Accesos a páginas externas: se abren en el navegador
+        for texto, url in (("🌐 Películas", "https://ext.to/"), ("🌐 Subtítulos", "https://subdivx.com/")):
+            accion = barra.addAction(texto, lambda u=url: QDesktopServices.openUrl(QUrl(u)))
+            accion.setToolTip(f"Abrir {url} en el navegador")
         barra.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         espacio = QWidget()
         espacio.setFixedWidth(20)
