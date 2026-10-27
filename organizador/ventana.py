@@ -3,10 +3,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QItemSelectionModel, QPoint, Qt
+from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer
 from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QFileDialog, QGroupBox, QHBoxLayout,
+    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout,
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStyle, QToolBar,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -15,11 +15,13 @@ from PySide6.QtWidgets import (
 from .db import CATEGORIA_DOMINIO_PUBLICO, EXT_IMAGEN, EXT_VIDEO, Biblioteca
 from .descargas import GestorDescargas
 from .dialogo_config import DialogoConfig
-from .dominio_publico import VentanaDominioPublico
+from .dominio_publico import VentanaDominioPublico, eliminar_video
 from .subtitulos import EXT_SUBTITULOS
+from .titulos import titulo_de
+from .vigilancia import Vigilante
 from .subtitulos_online import buscar_para_visor
 from .ventana_video import VentanaVideo
-from .visor import Visor, atajos_reproductor
+from .visor import REPRODUCIR, SI_ES_LARGO, VISTA_PREVIA, Visor, atajos_reproductor
 
 ROL = Qt.UserRole
 FILTROS_FIJOS = {
@@ -35,10 +37,15 @@ class Ventana(QMainWindow):
         super().__init__()
         self.bib = biblioteca
         self.filtro = ("todos", None)
+        # Cómo arranca el video al elegirlo en la lista: con un clic, solo vista previa
+        self._modo_seleccion = VISTA_PREVIA
         self.ventanas_video: list[VentanaVideo] = []
         self.ventana_dominio: VentanaDominioPublico | None = None
         self.gestor = GestorDescargas(biblioteca.ruta_db)
         self.gestor.pelicula_lista.connect(self._pelicula_descargada)
+        self.vigilante = Vigilante(biblioteca.ruta_db)
+        self.vigilante.archivos_nuevos.connect(self._videos_encontrados)
+        self.vigilante.movido.connect(self._video_movido)
         self.gestor.mensaje.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.setWindowTitle("TVon")
         self.resize(1400, 820)
@@ -79,12 +86,27 @@ class Ventana(QMainWindow):
         self.lista.itemDoubleClicked.connect(lambda item: self._abrir_en_ventana([item.data(0, ROL)]))
         self.lista.setContextMenuPolicy(Qt.CustomContextMenu)
         self.lista.customContextMenuRequested.connect(self._menu_archivos)
+        self.lista.itemSelectionChanged.connect(self._actualizar_boton_titulo)
         self.lbl_cantidad = QLabel()
+        # Con un solo archivo seleccionado: crear una categoría con el título de la película o serie
+        self.btn_categoria_titulo = QPushButton(objectName="chico")
+        self.btn_categoria_titulo.clicked.connect(self._categoria_desde_titulo)
+        self.btn_categoria_titulo.hide()
+        self.btn_eliminar = QPushButton("🗑 Eliminar", objectName="chico",
+                                        toolTip="Mandar los archivos seleccionados a la Papelera de reciclaje (Supr)")
+        self.btn_eliminar.clicked.connect(self._eliminar_del_disco)
+        self.btn_eliminar.hide()
+        QShortcut(QKeySequence.Delete, self.lista, activated=self._eliminar_del_disco,
+                  context=Qt.WidgetShortcut)
 
         self.centro = centro = QWidget()
         capa_centro = QVBoxLayout(centro)
         capa_centro.addWidget(self.lista, 1)
-        capa_centro.addWidget(self.lbl_cantidad)
+        fila_pie = QHBoxLayout()
+        fila_pie.addWidget(self.lbl_cantidad, 1)
+        fila_pie.addWidget(self.btn_categoria_titulo)
+        fila_pie.addWidget(self.btn_eliminar)
+        capa_centro.addLayout(fila_pie)
 
         # --- Columna derecha: visor y detalles ------------------------------
         self.visor = Visor()
@@ -93,13 +115,18 @@ class Ventana(QMainWindow):
         self.visor.buscar_siguiente = self.bib.siguiente_en_categoria
         self.visor.reproducir_siguiente.connect(self._reproducir_capitulo)
         self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, self.bib, self))
+        self.visor.pedir_apagado.connect(self._apagar_computadora)
+        self.chk_apagar = QCheckBox("⏻ Apagar al terminar",
+                                    toolTip="Apaga la computadora cuando termine el video que se está viendo")
+        self.chk_apagar.toggled.connect(self._apagar_al_terminar)
+        self.visor.agregar_control(self.chk_apagar)
 
         self.lbl_nombre = QLabel(objectName="titulo")
         self.lbl_nombre.setWordWrap(True)
         self.txt_ruta = QLineEdit(readOnly=True, placeholderText="Ubicación del archivo")
         btn_abrir = QPushButton("Abrir ubicación")
         btn_copiar = QPushButton("Copiar ruta")
-        btn_abrir.clicked.connect(self._abrir_ubicacion)
+        btn_abrir.clicked.connect(lambda: self._abrir_ubicacion())
         btn_copiar.clicked.connect(lambda: QApplication.clipboard().setText(self.txt_ruta.text()))
         fila_ruta = QHBoxLayout()
         fila_ruta.addWidget(self.txt_ruta, 1)
@@ -152,6 +179,7 @@ class Ventana(QMainWindow):
         self._cargar_filtros()
         self._mostrar_detalles(None)
         self.gestor.iniciar()
+        self.vigilante.iniciar()
 
     # --- Construcción -------------------------------------------------------
 
@@ -167,7 +195,7 @@ class Ventana(QMainWindow):
         barra.addAction(acc_carpeta)
         barra.addSeparator()
         barra.addAction("🎞 Dominio público", self._abrir_dominio_publico)
-        barra.addAction("⚙ Configuración", lambda: DialogoConfig(self.bib, self).exec())
+        barra.addAction("⚙ Configuración", self._abrir_configuracion)
         barra.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         espacio = QWidget()
         espacio.setFixedWidth(20)
@@ -236,6 +264,18 @@ class Ventana(QMainWindow):
         if item and item.data(ROL):
             self.filtro = item.data(ROL)
             self._cargar_archivos()
+            # Categoría con un solo video (una película): se elige sola y, si dura más de una hora, arranca
+            if self.filtro[0] == "categoria" and self.lista.topLevelItemCount() == 1:
+                unico = self.lista.topLevelItem(0)
+                if unico.data(0, ROL)[2] == "video" and unico is not self.lista.currentItem():
+                    self._seleccionar(unico, SI_ES_LARGO)
+
+    def _seleccionar(self, item: QTreeWidgetItem, modo: str):
+        self._modo_seleccion = modo
+        try:
+            self.lista.setCurrentItem(item)
+        finally:
+            self._modo_seleccion = VISTA_PREVIA
 
     def _categoria_actual(self) -> tuple[int, str] | None:
         item = self.lista_filtros.currentItem()
@@ -339,7 +379,9 @@ class Ventana(QMainWindow):
         if item is None:
             return
         if not item.isSelected():
-            self.lista.setCurrentItem(item)
+            # Seleccionar sin cambiar el archivo actual, así no se corta el video que se está viendo
+            self.lista.clearSelection()
+            item.setSelected(True)
         ids = self._ids_seleccionados()
         n = len(ids)
         categorias = self.bib.listar_categorias()
@@ -347,6 +389,8 @@ class Ventana(QMainWindow):
         menu = QMenu(self)
         seleccion = [i.data(0, ROL) for i in self.lista.selectedItems()]
         menu.addAction(f"⧉ Abrir en ventana nueva ({n})", lambda: self._abrir_en_ventana(seleccion))
+        videos = [ruta for _aid, ruta, tipo in seleccion if tipo == "video"]
+        menu.addAction(f"☰ Agregar a la cola ({len(videos)})", lambda: self._encolar(videos)).setEnabled(bool(videos))
         menu.addSeparator()
         asignar = menu.addMenu(f"Asignar a categoría ({n})")
         for cid, nombre, _ in categorias:
@@ -365,8 +409,10 @@ class Ventana(QMainWindow):
 
         menu.addSeparator()
         if n == 1:
-            menu.addAction("Abrir ubicación", self._abrir_ubicacion)
+            menu.addAction(self.btn_categoria_titulo.text(), self._categoria_desde_titulo)
+            menu.addAction("Abrir ubicación", lambda: self._abrir_ubicacion(seleccion[0][1]))
         menu.addAction(f"Quitar de la biblioteca ({n})", self._quitar_archivo)
+        menu.addAction(f"🗑 Eliminar del disco ({n})…", self._eliminar_del_disco)
         menu.exec(self.lista.viewport().mapToGlobal(pos))
 
     def _asignar_seleccion(self, ids: list[int], cid: int, nombre: str, activa: bool):
@@ -397,7 +443,7 @@ class Ventana(QMainWindow):
         datos = item.data(0, ROL) if item else None
         if datos:
             _, ruta, tipo = datos
-            self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta))
+            self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta), modo=self._modo_seleccion)
         else:
             self.visor.mostrar(None, None)
         self._mostrar_detalles(datos)
@@ -478,12 +524,86 @@ class Ventana(QMainWindow):
             self.bib.quitar_archivos(ids)
             self._cargar_filtros()
 
+    def _eliminar_del_disco(self):
+        seleccion = [i.data(0, ROL) for i in self.lista.selectedItems()]
+        if not seleccion:
+            return
+        nombres = "\n".join(f"• {Path(ruta).name}" for _aid, ruta, _tipo in seleccion[:8])
+        if len(seleccion) > 8:
+            nombres += f"\n… y {len(seleccion) - 8} más"
+        if QMessageBox.question(
+            self, "Eliminar del disco",
+            f"¿Mandar {len(seleccion)} archivo(s) a la Papelera de reciclaje?\n\n{nombres}\n\n"
+            "También se borran sus subtítulos y se quitan de la biblioteca. "
+            "Se pueden recuperar desde la Papelera.",
+        ) != QMessageBox.Yes:
+            return
+        fallidos, borrados = [], []
+        for aid, ruta, _tipo in seleccion:
+            self._soltar_archivo(ruta)
+            fallidos += eliminar_video(ruta)
+            if not Path(ruta).exists():
+                borrados.append(aid)
+                self.bib.marcar_descarga_eliminada(ruta)
+        self.bib.quitar_archivos(borrados)
+        self._cargar_filtros()
+        self.statusBar().showMessage(f"{len(borrados)} archivo(s) enviado(s) a la Papelera", 8000)
+        if fallidos:
+            QMessageBox.warning(self, "Eliminar del disco",
+                                "No se pudieron mover a la Papelera (¿están abiertos en otro programa?):\n\n"
+                                + "\n".join(fallidos))
+
+    def _encolar(self, rutas: list[str]):
+        agregados = self.visor.encolar(rutas)
+        self.statusBar().showMessage(
+            f"{agregados} video(s) agregado(s) a la cola · {len(self.visor.cola)} en espera", 6000)
+
+    # --- Apagar al terminar -------------------------------------------------------
+
+    def _apagar_al_terminar(self, activo: bool):
+        for visor in [self.visor, *(v.visor for v in self.ventanas_video)]:
+            visor.apagar_al_terminar = activo
+            visor.panel_sig.hide()
+        self.visor.pantalla.mostrar_osd("La computadora se apagará al terminar el video" if activo
+                                        else "Apagado automático desactivado")
+
+    def _apagar_computadora(self):
+        """Cuenta regresiva con opción de cancelar antes de apagar."""
+        self.chk_apagar.setChecked(False)  # es para una sola vez
+        segundos = [60]
+        aviso = QMessageBox(QMessageBox.Warning, "Apagar la computadora", "", parent=self)
+        aviso.setWindowFlag(Qt.WindowStaysOnTopHint)
+        aviso.setStandardButtons(QMessageBox.Cancel)
+        aviso.addButton("Apagar ahora", QMessageBox.AcceptRole)
+        reloj = QTimer(aviso, interval=1000)
+
+        def tic():
+            if segundos[0] <= 0:
+                reloj.stop()
+                aviso.done(QMessageBox.AcceptRole)
+                return
+            aviso.setText(f"Terminó el video. La computadora se apaga en {segundos[0]} s.")
+            segundos[0] -= 1
+
+        reloj.timeout.connect(tic)
+        tic()
+        reloj.start()
+        aviso.exec()
+        reloj.stop()
+        if aviso.clickedButton() is aviso.button(QMessageBox.Cancel):
+            self.statusBar().showMessage("Apagado cancelado", 5000)
+            return
+        if sys.platform == "win32":
+            subprocess.Popen(["shutdown", "/s", "/t", "0"])
+        else:
+            subprocess.Popen(["systemctl", "poweroff"])
+
     def _reproducir_capitulo(self, ruta: str):
         """Pasa al siguiente capítulo seleccionándolo en la lista, si está visible."""
         for i in range(self.lista.topLevelItemCount()):
             item = self.lista.topLevelItem(i)
             if item.data(0, ROL)[1] == ruta:
-                self.lista.setCurrentItem(item)
+                self._seleccionar(item, REPRODUCIR)
                 self.lista.scrollToItem(item)
                 return
         # Con un filtro o búsqueda que lo oculta, se reproduce igual
@@ -501,10 +621,12 @@ class Ventana(QMainWindow):
             posicion = 0
             # Si es el video del visor principal, sigue desde el mismo punto en la ventana
             if ruta == self.visor.ruta_video:
-                posicion = self.visor.reproductor.position()
+                posicion = self.visor.posicion_actual()
                 self.visor.mostrar(None, None, aviso_vacio="Se está reproduciendo en una ventana aparte")
             ventana = VentanaVideo(self.bib, ruta, tipo, posicion)
             ventana.cerrada.connect(self.ventanas_video.remove)
+            ventana.visor.apagar_al_terminar = self.chk_apagar.isChecked()
+            ventana.visor.pedir_apagado.connect(self._apagar_computadora)
             # En cascada para que no queden una encima de la otra
             desplazamiento = 40 * (len(self.ventanas_video) % 8)
             ventana.move(self.pos() + QPoint(120 + desplazamiento, 100 + desplazamiento))
@@ -514,6 +636,7 @@ class Ventana(QMainWindow):
     def closeEvent(self, e):
         # Una descarga a medias queda en cola y se retoma al volver a abrir TVon
         self.gestor.detener()
+        self.vigilante.detener()
         for ventana in [*self.ventanas_video, self.ventana_dominio]:
             if ventana:
                 ventana.close()
@@ -530,9 +653,55 @@ class Ventana(QMainWindow):
         self.ventana_dominio.raise_()
         self.ventana_dominio.activateWindow()
 
+    # --- Biblioteca automática ----------------------------------------------------
+
+    def _abrir_configuracion(self):
+        if DialogoConfig(self.bib, self).exec():
+            self.vigilante.despertar()
+
+    def _videos_encontrados(self, cantidad: int):
+        self._cargar_filtros()
+        self.statusBar().showMessage(f"{cantidad} video(s) nuevo(s) en tus carpetas", 8000)
+
+    def _video_movido(self, ruta: str):
+        self._cargar_filtros()
+        self.statusBar().showMessage(f"Movido de Descargas a {Path(ruta).parent.name}: {Path(ruta).name}", 8000)
+
+    # --- Categoría desde el título -------------------------------------------------
+
+    def _actualizar_boton_titulo(self):
+        seleccion = self.lista.selectedItems()
+        self.btn_eliminar.setVisible(bool(seleccion))
+        self.btn_eliminar.setText(f"🗑 Eliminar ({len(seleccion)})" if len(seleccion) > 1 else "🗑 Eliminar")
+        if len(seleccion) == 1:
+            titulo = titulo_de(seleccion[0].text(0))
+            self.btn_categoria_titulo.setText(f"＋ Categoría: {titulo}")
+            self.btn_categoria_titulo.setToolTip(
+                f"Crea la categoría «{titulo}» y le asigna este archivo y los demás con el mismo título")
+            self.btn_categoria_titulo.show()
+        else:
+            self.btn_categoria_titulo.hide()
+
+    def _categoria_desde_titulo(self):
+        seleccion = self.lista.selectedItems()
+        if len(seleccion) != 1:
+            return
+        titulo = titulo_de(seleccion[0].text(0))
+        existia = any(nombre.lower() == titulo.lower() for _, nombre, _ in self.bib.listar_categorias())
+        cid = self.bib.categoria_id(titulo)
+        # También los demás capítulos de la misma serie (mismo título)
+        ids = [aid for aid, _ruta, nombre, _tipo in self.bib.listar_archivos()
+               if titulo_de(nombre).lower() == titulo.lower()]
+        self.bib.asignar_varios(ids, cid, True)
+        self._cargar_filtros()
+        accion = "Se sumaron a la categoría" if existia else "Categoría creada"
+        self.statusBar().showMessage(f"{accion} «{titulo}»: {len(ids)} archivo(s)", 8000)
+
     def _soltar_archivo(self, ruta: str):
         """Deja de reproducir un archivo que se va a borrar (Windows no deja borrar uno abierto)."""
         objetivo = Path(ruta).resolve()
+        for visor in [self.visor, *(v.visor for v in self.ventanas_video)]:
+            visor.quitar_de_cola(ruta)
         if self.visor.ruta_video and Path(self.visor.ruta_video).resolve() == objetivo:
             self.visor.mostrar(None, None)
         for ventana in list(self.ventanas_video):
@@ -547,8 +716,8 @@ class Ventana(QMainWindow):
         self._cargar_filtros()
         self.statusBar().showMessage(f"Descargada y agregada a la biblioteca: {Path(ruta).stem}", 8000)
 
-    def _abrir_ubicacion(self):
-        ruta = self.txt_ruta.text()
+    def _abrir_ubicacion(self, ruta: str | None = None):
+        ruta = ruta or self.txt_ruta.text()
         if not ruta:
             return
         if not Path(ruta).exists():

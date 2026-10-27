@@ -3,6 +3,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+from PySide6.QtCore import QStandardPaths
+
 EXT_VIDEO = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".m4v", ".flv", ".mpg", ".mpeg"}
 EXT_IMAGEN = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"}
 
@@ -21,8 +23,25 @@ def tipo_de(ruta: Path) -> str | None:
     return None
 
 
+def _carpeta_sistema(tipo) -> str:
+    """Carpeta estándar del usuario (respeta si Windows la redirigió, p. ej. a OneDrive)."""
+    return str(Path(QStandardPaths.writableLocation(tipo)))
+
+
+VIDEOS = _carpeta_sistema(QStandardPaths.MoviesLocation)
+DOCUMENTOS = _carpeta_sistema(QStandardPaths.DocumentsLocation)
+DESCARGAS = _carpeta_sistema(QStandardPaths.DownloadLocation)
+SEPARADOR_CARPETAS = "|"  # no puede aparecer en una ruta de Windows
+
 CONFIG_DEFECTO = {
-    "carpeta_descargas": str(Path.home() / "Videos" / "TVon"),
+    # Carpetas que se revisan solas para sumar videos nuevos a la biblioteca
+    "carpetas_biblioteca": SEPARADOR_CARPETAS.join([VIDEOS, DOCUMENTOS]),
+    # Mover los videos terminados de Descargas a la carpeta de videos
+    "mover_descargas": "1",
+    "carpeta_descargas_sistema": DESCARGAS,
+    "carpeta_videos": VIDEOS,
+    # Películas de dominio público
+    "carpeta_descargas": str(Path(VIDEOS) / "TVon"),
     "idiomas_subtitulos": "es,en",
     "os_api_key": "",
     "os_usuario": "",
@@ -137,6 +156,11 @@ class Biblioteca:
         fila = self.con.execute("SELECT ruta FROM descargas WHERE identificador = ?", (identificador,)).fetchone()
         return fila[0] if fila else None
 
+    def marcar_descarga_eliminada(self, ruta: str) -> None:
+        """Si el video vino de la descarga automática, que no se vuelva a bajar."""
+        self.con.execute("UPDATE descargas SET estado = 'eliminada' WHERE ruta = ?", (ruta,))
+        self.con.commit()
+
     def resumen_descargas(self) -> tuple[int, int]:
         """(cantidad, bytes) de las películas descargadas o en cola."""
         n, total = self.con.execute(
@@ -154,6 +178,12 @@ class Biblioteca:
         self.con.execute("INSERT OR IGNORE INTO categorias (nombre) VALUES (?)", (nombre,))
         self.con.commit()
         return self.con.execute("SELECT id FROM categorias WHERE nombre = ?", (nombre,)).fetchone()[0]
+
+    def rutas_conocidas(self) -> set[str]:
+        return {fila[0] for fila in self.con.execute("SELECT ruta FROM archivos")}
+
+    def carpetas_biblioteca(self) -> list[str]:
+        return [c for c in self.config("carpetas_biblioteca").split(SEPARADOR_CARPETAS) if c.strip()]
 
     def id_de_ruta(self, ruta: str) -> int | None:
         fila = self.con.execute("SELECT id FROM archivos WHERE ruta = ?", (ruta,)).fetchone()

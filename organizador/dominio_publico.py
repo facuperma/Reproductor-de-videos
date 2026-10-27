@@ -12,6 +12,7 @@ from . import archive
 from .db import Biblioteca
 from .descargas import GestorDescargas
 from .dialogo_config import DialogoConfig
+from .subtitulos import subtitulos_junto_a
 from .tareas import en_segundo_plano
 
 ROL = Qt.UserRole
@@ -34,15 +35,23 @@ def eliminar_archivos(ruta_video: str) -> list[str]:
     video = Path(ruta_video)
     if not video.parent.exists():
         return []
-    fallidos = []
-    for archivo in video.parent.iterdir():
-        if archivo.name.startswith(video.stem):
-            resultado = QFile.moveToTrash(str(archivo))
-            if not (resultado[0] if isinstance(resultado, tuple) else resultado):
-                fallidos.append(archivo.name)
+    fallidos = [archivo.name for archivo in video.parent.iterdir()
+                if archivo.name.startswith(video.stem) and not a_la_papelera(archivo)]
     if not any(video.parent.iterdir()):
         video.parent.rmdir()
     return fallidos
+
+
+def a_la_papelera(archivo: Path) -> bool:
+    resultado = QFile.moveToTrash(str(archivo))
+    return resultado[0] if isinstance(resultado, tuple) else resultado
+
+
+def eliminar_video(ruta_video: str) -> list[str]:
+    """Manda a la Papelera un video de la biblioteca y sus subtítulos (video.srt, video.es.srt…),
+    sin tocar otros archivos de la carpeta. Devuelve los que no se pudieron mover."""
+    archivos = [Path(ruta_video), *map(Path, subtitulos_junto_a(ruta_video))]
+    return [a.name for a in archivos if a.exists() and not a_la_papelera(a)]
 
 
 class VentanaDominioPublico(QWidget):

@@ -1,4 +1,4 @@
-<img src="organizador/icono.png" alt="TVon" width="96">
+﻿<img src="organizador/icono.png" alt="TVon" width="96">
 
 # TVon
 
@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.0.1.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.0.1.exe)** (28 MB)
+**[⬇ TVon-Setup-1.1.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.1.0.exe)** (28 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -32,6 +32,18 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 - Panel izquierdo: filtrar por Todos / Videos / Imágenes / Sin categoría o por una categoría.
 - Seleccioná varios archivos arrastrando el mouse (o con Ctrl/Shift + clic) y con **clic derecho** asignalos a una categoría, quitalos de una o creá una nueva. En «Sin categoría» desaparecen al asignarlos.
 - Panel derecho: visor, ruta del archivo, "Abrir ubicación" y casillas para asignar categorías.
+- Un clic en un video muestra una **vista previa** (un cuadro del video, sin sonido): se reproduce con clic sobre la imagen, ▶ o Espacio, siempre desde el principio.
+- Al elegir una categoría que tiene **un solo video** (una película), se selecciona solo y, si dura más de una hora, empieza a reproducirse.
+
+### Biblioteca automática
+
+- Los videos de **Videos** y **Documentos** (con subcarpetas) se suman solos a la biblioteca: al abrir TVon y cada minuto. Se saltean carpetas ocultas o de programación (`.venv`, `node_modules`…).
+- Los videos que terminan de bajarse en **Descargas** se mueven solos a **Videos** (con sus subtítulos) y entran a la biblioteca. Solo archivos sueltos, no subcarpetas, y recién cuando ningún programa los tiene abiertos.
+- Todo se ajusta en **⚙ Configuración** (agregar o quitar carpetas, desactivar el movimiento).
+
+### Categoría con el título
+
+Con un solo archivo seleccionado aparece el botón **＋ Categoría: …** (también en el clic derecho). Crea una categoría con el título limpio de la película o serie —«Breaking.Bad.S01E02.720p.mkv» → «Breaking Bad»— y le suma todos los archivos con ese mismo título, así el siguiente capítulo funciona solo.
 
 ### Películas de dominio público
 
@@ -47,9 +59,22 @@ Botón **🎞 Dominio público** en la barra superior: busca en la colección de
 ### Series: siguiente capítulo automático
 
 - Poné los capítulos de una serie en la misma categoría, con números en el nombre (`Cap 1`, `Cap 2`, … `Cap 10`, o `S01E01`).
-- 10 segundos antes del final aparece «Siguiente capítulo en 10 s»: al terminar arranca solo, o elegís **Reproducir ahora** o **Cancelar**. La cuenta se frena con la pausa y el aviso se oculta si retrocedés.
+- 5 segundos antes del final aparece «Siguiente capítulo en 5 s»: al terminar arranca solo, o elegís **Reproducir ahora** o **Cancelar**. La cuenta se frena con la pausa y el aviso se oculta si retrocedés.
 - El botón ⏭ (o la tecla N) salta al siguiente capítulo en cualquier momento.
 - Los números se ordenan bien: «Cap 2» va antes que «Cap 10», también en la lista.
+
+### Cola de reproducción
+
+- Clic derecho → **☰ Agregar a la cola** suma los videos seleccionados para después del que estás viendo (sin cortarlo). Si no se está viendo nada, arranca el primero.
+- La cola va antes que el siguiente capítulo. El botón **☰ Cola (n)** de los controles muestra lo que sigue: reproducir uno ya, quitarlo o vaciar la cola.
+
+### Eliminar videos
+
+**🗑 Eliminar** (al pie de la lista, con algo seleccionado), clic derecho → **Eliminar del disco** o la tecla **Supr**: manda los archivos a la Papelera de reciclaje con sus subtítulos y los quita de la biblioteca. Se pueden recuperar desde la Papelera.
+
+### Apagar al terminar
+
+Marcá **⏻ Apagar al terminar** en los controles: cuando termine el video (en el visor o en una ventana aparte) no sigue el próximo y la computadora se apaga tras 60 segundos de aviso, con un botón para **Cancelar**. La casilla se desmarca sola después de usarla.
 
 ### Varios videos a la vez
 
@@ -75,6 +100,7 @@ Botón **🎞 Dominio público** en la barra superior: busca en la colección de
 | ← / → | Retroceder / adelantar 5 s |
 | Shift+← / Shift+→ | Retroceder / adelantar 15 s (también botones ↺15 y 15↻) |
 | F o doble clic | Pantalla completa (Esc para salir) |
-| N | Siguiente capítulo |
+| N | Siguiente de la cola o capítulo |
+| Supr | Eliminar los archivos seleccionados (a la Papelera) |
 | G / H | Subtítulos 50 ms antes / después |
 | Ctrl+F | Buscar |
