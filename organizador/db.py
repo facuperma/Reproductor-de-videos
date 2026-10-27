@@ -52,6 +52,8 @@ CONFIG_DEFECTO = {
 }
 
 CATEGORIA_DOMINIO_PUBLICO = "Dominio público"
+# Categoría fija: se crea sola y no se puede renombrar ni borrar
+CATEGORIA_FAVORITOS = "Favoritos"
 
 
 class Biblioteca:
@@ -106,6 +108,7 @@ class Biblioteca:
             """
         )
         self.con.commit()
+        self.favoritos = self.categoria_id(CATEGORIA_FAVORITOS)
 
     # --- Configuración ------------------------------------------------------
 
@@ -243,13 +246,14 @@ class Biblioteca:
     # --- Categorías -------------------------------------------------------
 
     def listar_categorias(self) -> list[tuple[int, str, int]]:
-        """Devuelve (id, nombre, cantidad de archivos)."""
+        """Devuelve (id, nombre, cantidad de archivos), con Favoritos primero."""
         return self.con.execute(
             """
             SELECT c.id, c.nombre, COUNT(ac.archivo_id)
             FROM categorias c LEFT JOIN archivo_categoria ac ON ac.categoria_id = c.id
-            GROUP BY c.id ORDER BY c.nombre COLLATE NOCASE
-            """
+            GROUP BY c.id ORDER BY c.id = ? DESC, c.nombre COLLATE NOCASE
+            """,
+            (self.favoritos,),
         ).fetchall()
 
     def crear_categoria(self, nombre: str) -> None:

@@ -6,9 +6,9 @@ from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QFont, QFontMetrics, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut,
 )
-from PySide6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer, QVideoSink
+from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaMetaData, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
-    QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
+    QApplication, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
     QSizePolicy, QSlider, QStackedWidget, QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -21,6 +21,8 @@ REPRODUCIR = "reproducir"
 VISTA_PREVIA = "vista_previa"   # un cuadro de muestra, hasta que se aprieta reproducir
 SI_ES_LARGO = "si_es_largo"     # vista previa, salvo que dure más que DURACION_LARGA_MS
 DURACION_LARGA_MS = 3_600_000
+
+LOGO = Path(__file__).parent / "icono.png"
 
 
 def atajos_reproductor(ventana: QWidget, visor: "Visor", alternar_completa):
@@ -216,6 +218,41 @@ class ImagenEscalada(QLabel):
             self.setPixmap(self._pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
 
+class Bienvenida(QWidget):
+    """Pantalla sin archivo: el logo de TVon, tenue, sobre el aviso."""
+
+    def __init__(self, texto: str):
+        super().__init__(objectName="vacio")
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.logo = QLabel(alignment=Qt.AlignCenter)
+        self.logo.setPixmap(self._logo_tenue(150, 0.35))
+        self.texto = QLabel(texto, alignment=Qt.AlignCenter, wordWrap=True)
+        capa = QVBoxLayout(self)
+        capa.addStretch()
+        capa.addWidget(self.logo)
+        capa.addSpacing(12)
+        capa.addWidget(self.texto)
+        capa.addStretch()
+
+    @staticmethod
+    def _logo_tenue(tamano: int, opacidad: float) -> QPixmap:
+        escala = QApplication.instance().devicePixelRatio()
+        original = QPixmap(str(LOGO)).scaled(round(tamano * escala), round(tamano * escala),
+                                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        tenue = QPixmap(original.size())
+        tenue.fill(Qt.transparent)
+        p = QPainter(tenue)
+        p.setOpacity(opacidad)
+        p.drawPixmap(0, 0, original)
+        p.end()
+        tenue.setDevicePixelRatio(escala)
+        return tenue
+
+    def setText(self, texto: str):
+        self.texto.setText(texto)
+
+
 class Visor(QWidget):
     pedir_pantalla_completa = Signal()
     # (ruta del video, ruta del subtítulo o None, retraso en ms)
@@ -256,11 +293,14 @@ class Visor(QWidget):
         self.audio.setVolume(0.7)
         self.sink = QVideoSink(self)
         self.reproductor.setVideoSink(self.sink)
+        # Sin esto, al cambiar la salida de Windows (auriculares, parlantes, HDMI)
+        # el sonido sigue yendo a la anterior hasta reiniciar TVon
+        self._dispositivos = QMediaDevices(self)
+        self._dispositivos.audioOutputsChanged.connect(self._salida_audio_cambiada)
 
         self.pantalla = PantallaVideo()
         self.imagen = ImagenEscalada()
-        self.vacio = QLabel("Elegí un archivo de la lista", alignment=Qt.AlignCenter)
-        self.vacio.setObjectName("vacio")
+        self.vacio = Bienvenida("Elegí un archivo de la lista")
         self.pila = QStackedWidget()
         for w in (self.vacio, self.imagen, self.pantalla):
             self.pila.addWidget(w)
@@ -615,6 +655,9 @@ class Visor(QWidget):
     def _nuevo_frame(self, frame):
         self._actualizar_subtitulo()
         self.pantalla.set_frame(frame)
+
+    def _salida_audio_cambiada(self):
+        self.audio.setDevice(QMediaDevices.defaultAudioOutput())
 
     def _alternar_mute(self):
         self.audio.setMuted(not self.audio.isMuted())

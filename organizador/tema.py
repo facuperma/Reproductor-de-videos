@@ -14,7 +14,18 @@ QFrame#panelSiguiente {
 QFrame#panelSiguiente QLabel { background: transparent; }
 QDoubleSpinBox { background: #131d33; border: 1px solid #24334f; border-radius: 6px; padding: 3px 6px; }
 QToolButton::menu-indicator { image: none; }
-QLabel#vacio { color: #7a8599; font-size: 12pt; background: #0a1020; }
+QWidget#vacio { background: #0a1020; }
+QWidget#vacio QLabel { color: #7a8599; font-size: 12pt; background: transparent; }
+QLabel#chip {
+    background: #1f3566; color: #cfe0ff; border: 1px solid #3d7bfd; border-radius: 10px; padding: 2px 10px;
+}
+QMenuBar { background: #131d33; border-bottom: 1px solid #0b1222; padding: 2px 4px; }
+QMenuBar::item { background: transparent; padding: 4px 10px; border-radius: 4px; }
+QMenuBar::item:selected { background: #1f2d4d; }
+QMenu { background: #131d33; border: 1px solid #24334f; }
+QMenu::item:selected { background: #2a4a8c; color: #ffffff; }
+QMenu::item:disabled { color: #56627a; }
+QMenu::separator { height: 1px; background: #24334f; margin: 4px 8px; }
 QLineEdit, QListWidget, QTreeWidget, QGroupBox {
     background: #131d33; border: 1px solid #24334f; border-radius: 6px;
 }

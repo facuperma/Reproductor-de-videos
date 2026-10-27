@@ -1,18 +1,20 @@
 """Ventana principal: filtros/categorías, lista de archivos, visor y detalles."""
+import platform
 import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer, QUrl
+from PySide6 import __version__ as VERSION_QT
+from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer, QUrl, QUrlQuery
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout,
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStyle, QToolBar,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter, QStyle, QToolBar,
+    QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .db import CATEGORIA_DOMINIO_PUBLICO, EXT_IMAGEN, EXT_VIDEO, Biblioteca
+from .db import CATEGORIA_DOMINIO_PUBLICO, CATEGORIA_FAVORITOS, EXT_IMAGEN, EXT_VIDEO, Biblioteca
 from .descargas import GestorDescargas
 from .dialogo_config import DialogoConfig
 from .dominio_publico import VentanaDominioPublico, eliminar_video
@@ -21,7 +23,7 @@ from .titulos import titulo_de
 from .vigilancia import Vigilante
 from .subtitulos_online import buscar_para_visor
 from .ventana_video import VentanaVideo
-from .visor import REPRODUCIR, SI_ES_LARGO, VISTA_PREVIA, Visor, atajos_reproductor
+from .visor import REPRODUCIR, VISTA_PREVIA, Visor, atajos_reproductor
 
 ROL = Qt.UserRole
 FILTROS_FIJOS = {
@@ -30,6 +32,8 @@ FILTROS_FIJOS = {
     ("imagen", None): "Imágenes",
     ("sin_categoria", None): "Sin categoría",
 }
+REPOSITORIO = "https://github.com/facuperma/Reproductor-de-videos"
+AUTOR = "Faierwall"
 
 
 class Ventana(QMainWindow):
@@ -133,11 +137,20 @@ class Ventana(QMainWindow):
         fila_ruta.addWidget(btn_abrir)
         fila_ruta.addWidget(btn_copiar)
 
-        self.lista_asignar = QListWidget()
-        self.lista_asignar.setMaximumHeight(150)
-        self.lista_asignar.itemChanged.connect(self._asignacion_cambiada)
+        # Solo las categorías del archivo; se cambian desde el menú «Editar»
+        self.chips = QWidget()
+        self.chips.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.capa_chips = QHBoxLayout(self.chips)
+        self.capa_chips.setContentsMargins(0, 0, 0, 0)
+        self.btn_editar_cat = QToolButton(text="✎ Editar", popupMode=QToolButton.InstantPopup,
+                                          toolTip="Asignar o quitar categorías")
+        self.menu_editar_cat = QMenu(self)
+        self.menu_editar_cat.aboutToShow.connect(self._armar_menu_categorias)
+        self.btn_editar_cat.setMenu(self.menu_editar_cat)
         grupo_cat = QGroupBox("Categorías de este archivo")
-        QVBoxLayout(grupo_cat).addWidget(self.lista_asignar)
+        capa_cat = QHBoxLayout(grupo_cat)
+        capa_cat.addWidget(self.chips, 1)
+        capa_cat.addWidget(self.btn_editar_cat)
 
         btn_ant = QPushButton("◀ Anterior")
         btn_sig = QPushButton("Siguiente ▶")
@@ -175,6 +188,7 @@ class Ventana(QMainWindow):
         divisor.setStretchFactor(2, 1)
         self.setCentralWidget(divisor)
 
+        self._crear_menu()
         self._atajos()
         self._cargar_filtros()
         self._mostrar_detalles(None)
@@ -210,6 +224,76 @@ class Ventana(QMainWindow):
         self.buscador.textChanged.connect(lambda _: self._cargar_archivos())
         barra.addWidget(self.buscador)
 
+    def _crear_menu(self):
+        barra = self.menuBar()
+
+        archivo = barra.addMenu("&Archivo")
+        archivo.addAction("Agregar archivos…", QKeySequence("Ctrl+O"), self._agregar_archivos)
+        archivo.addAction("Agregar carpeta…", QKeySequence("Ctrl+Shift+O"), self._agregar_carpeta)
+        archivo.addSeparator()
+        archivo.addAction("Abrir ubicación del archivo", self._abrir_ubicacion)
+        archivo.addAction("Películas de dominio público…", self._abrir_dominio_publico)
+        archivo.addSeparator()
+        archivo.addAction("Salir", QKeySequence("Ctrl+Q"), self.close)
+
+        vista = barra.addMenu("&Vista")
+        # El atajo F ya lo maneja el reproductor: acá solo se muestra
+        vista.addAction("Pantalla completa\tF", self._alternar_pantalla_completa)
+        vista.addAction("Buscar\tCtrl+F", self._enfocar_buscador)
+        vista.addSeparator()
+        self._paneles = {}
+        for texto, panel in (("Barra de herramientas", self.barra_herramientas),
+                             ("Panel de categorías", self.izq),
+                             ("Detalles del archivo", self.detalles),
+                             ("Barra de estado", self.statusBar())):
+            accion = vista.addAction(texto)
+            accion.setCheckable(True)
+            accion.setChecked(True)
+            accion.toggled.connect(panel.setVisible)
+            self._paneles[panel] = accion
+
+        config = barra.addMenu("&Configuración")
+        config.addAction("Preferencias…", self._abrir_configuracion)
+        apagar = config.addAction("Apagar la PC al terminar el video")
+        apagar.setCheckable(True)
+        apagar.toggled.connect(self.chk_apagar.setChecked)
+        self.chk_apagar.toggled.connect(apagar.setChecked)
+
+        barra.addAction("Acerca de", self._acerca_de)
+        barra.addAction("Reportar un bug", self._reportar_bug)
+
+    def _acerca_de(self):
+        caja = QMessageBox(self)
+        caja.setWindowTitle("Acerca de TVon")
+        caja.setIconPixmap(QApplication.windowIcon().pixmap(72, 72))
+        caja.setTextFormat(Qt.RichText)
+        caja.setText(
+            f"<h2>TVon</h2><p>Versión <b>{QApplication.applicationVersion()}</b></p>"
+            "<p>Organizador y reproductor de videos e imágenes.</p>"
+            f"<p>Hecho por <b>{AUTOR}</b></p>"
+            f"<p>© 2026 {AUTOR} · Licencia MIT<br>"
+            f"<a href='{REPOSITORIO}' style='color:#9fc2ff'>{REPOSITORIO.removeprefix('https://')}</a></p>"
+        )
+        caja.setInformativeText(f"Qt {VERSION_QT} · Python {platform.python_version()}")
+        caja.exec()
+
+    def _reportar_bug(self):
+        """Abre un issue nuevo en GitHub con la versión y el sistema ya completos."""
+        cuerpo = (
+            "**¿Qué pasó?**\n\n\n"
+            "**¿Qué esperabas que pasara?**\n\n\n"
+            "**Pasos para reproducirlo**\n1. \n2. \n\n"
+            f"---\nTVon {QApplication.applicationVersion()} · {platform.system()} {platform.release()} "
+            f"({platform.version()}) · Qt {VERSION_QT}"
+        )
+        consulta = QUrlQuery()
+        consulta.addQueryItem("title", "[Bug] ")
+        consulta.addQueryItem("body", cuerpo)
+        url = QUrl(f"{REPOSITORIO}/issues/new")
+        url.setQuery(consulta)
+        QDesktopServices.openUrl(url)
+        self.statusBar().showMessage("Se abrió el formulario de reporte en el navegador", 8000)
+
     def _atajos(self):
         atajos_reproductor(self, self.visor, self._alternar_pantalla_completa)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._enfocar_buscador)
@@ -222,8 +306,10 @@ class Ventana(QMainWindow):
     def _alternar_pantalla_completa(self):
         """Pantalla completa propia: se oculta todo menos el visor."""
         completa = not self.isFullScreen()
-        for w in (self.izq, self.centro, self.detalles, self.barra_herramientas, self.statusBar()):
-            w.setVisible(not completa)
+        for w in (self.izq, self.centro, self.detalles, self.barra_herramientas, self.statusBar(),
+                  self.menuBar()):
+            # Al salir, los paneles que se ocultaron desde el menú Vista siguen ocultos
+            w.setVisible(not completa and (w not in self._paneles or self._paneles[w].isChecked()))
         if completa:
             self._estaba_maximizada = self.isMaximized()
             self.capa_der.setContentsMargins(0, 0, 0, 0)
@@ -262,18 +348,19 @@ class Ventana(QMainWindow):
         self.lista_filtros.setCurrentRow(seleccion)
         self.filtro = self.lista_filtros.item(seleccion).data(ROL)
         self.lista_filtros.blockSignals(False)
-        self._cargar_categorias_asignables()
         self._cargar_archivos()
 
     def _filtro_cambiado(self, item, _anterior):
         if item and item.data(ROL):
             self.filtro = item.data(ROL)
             self._cargar_archivos()
-            # Categoría con un solo video (una película): se elige sola y, si dura más de una hora, arranca
-            if self.filtro[0] == "categoria" and self.lista.topLevelItemCount() == 1:
-                unico = self.lista.topLevelItem(0)
-                if unico.data(0, ROL)[2] == "video" and unico is not self.lista.currentItem():
-                    self._seleccionar(unico, SI_ES_LARGO)
+            # Categoría: se elige el primer video en vista previa (sin arrancar),
+            # salvo que el que se está viendo también esté en ella
+            if self.filtro[0] == "categoria" and self.lista.currentItem() is None:
+                items = (self.lista.topLevelItem(i) for i in range(self.lista.topLevelItemCount()))
+                if primero := next((it for it in items if it.data(0, ROL)[2] == "video"), None):
+                    self._seleccionar(primero, VISTA_PREVIA)
+                    self.lista.scrollToItem(primero)
 
     def _seleccionar(self, item: QTreeWidgetItem, modo: str):
         self._modo_seleccion = modo
@@ -309,6 +396,9 @@ class Ventana(QMainWindow):
             QMessageBox.information(self, "Categoría", "Seleccioná una categoría de la lista.")
             return
         cid, nombre = actual
+        if cid == self.bib.favoritos:
+            QMessageBox.information(self, "Categoría", "«Favoritos» es una categoría fija: no se puede renombrar.")
+            return
         if nuevo := self._pedir_nombre("Renombrar categoría", nombre):
             try:
                 self.bib.renombrar_categoria(cid, nuevo)
@@ -322,6 +412,9 @@ class Ventana(QMainWindow):
             QMessageBox.information(self, "Categoría", "Seleccioná una categoría de la lista.")
             return
         cid, nombre = actual
+        if cid == self.bib.favoritos:
+            QMessageBox.information(self, "Categoría", "«Favoritos» es una categoría fija: no se puede borrar.")
+            return
         if QMessageBox.question(
             self, "Borrar categoría",
             f"¿Borrar la categoría «{nombre}»?\nLos archivos no se borran, solo pierden esta etiqueta.",
@@ -371,7 +464,7 @@ class Ventana(QMainWindow):
         self.lbl_cantidad.setText(f"{len(filas)} archivo(s)")
 
         if seleccionar:
-            self._marcar_categorias_asignadas()
+            self._mostrar_categorias_archivo()
         else:
             self.visor.mostrar(None, None)
             self._mostrar_detalles(None)
@@ -397,6 +490,12 @@ class Ventana(QMainWindow):
         videos = [ruta for _aid, ruta, tipo in seleccion if tipo == "video"]
         menu.addAction(f"☰ Agregar a la cola ({len(videos)})", lambda: self._encolar(videos)).setEnabled(bool(videos))
         menu.addSeparator()
+        if all(self.bib.favoritos in self.bib.categorias_de(a) for a in ids):
+            menu.addAction(f"☆ Quitar de {CATEGORIA_FAVORITOS} ({n})", lambda: self._asignar_seleccion(
+                ids, self.bib.favoritos, CATEGORIA_FAVORITOS, False))
+        else:
+            menu.addAction(f"★ Agregar a {CATEGORIA_FAVORITOS} ({n})", lambda: self._asignar_seleccion(
+                ids, self.bib.favoritos, CATEGORIA_FAVORITOS, True))
         asignar = menu.addMenu(f"Asignar a categoría ({n})")
         for cid, nombre, _ in categorias:
             asignar.addAction(nombre, lambda c=cid, nom=nombre: self._asignar_seleccion(ids, c, nom, True))
@@ -463,39 +562,48 @@ class Ventana(QMainWindow):
             self.lbl_nombre.setText(("🎬 " if tipo == "video" else "🖼 ") + Path(ruta).name)
             self.txt_ruta.setText(ruta)
             self.txt_ruta.setCursorPosition(0)
-        self._marcar_categorias_asignadas()
+        self._mostrar_categorias_archivo()
 
-    def _cargar_categorias_asignables(self):
-        self.lista_asignar.blockSignals(True)
-        self.lista_asignar.clear()
-        for cid, nombre, _ in self.bib.listar_categorias():
-            item = QListWidgetItem(nombre)
-            item.setData(ROL, cid)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Unchecked)
-            self.lista_asignar.addItem(item)
-        if self.lista_asignar.count() == 0:
-            vacio = QListWidgetItem("Creá categorías con «+ Nueva»")
-            vacio.setFlags(Qt.NoItemFlags)
-            self.lista_asignar.addItem(vacio)
-        self.lista_asignar.blockSignals(False)
-        self._marcar_categorias_asignadas()
+    def _nombre_categoria(self, cid: int, nombre: str) -> str:
+        return f"★ {nombre}" if cid == self.bib.favoritos else nombre
 
-    def _marcar_categorias_asignadas(self):
-        actual = self._archivo_actual()
-        asignadas = self.bib.categorias_de(actual[0]) if actual else set()
-        self.lista_asignar.blockSignals(True)
-        for i in range(self.lista_asignar.count()):
-            item = self.lista_asignar.item(i)
-            if item.data(ROL) is not None:
-                item.setCheckState(Qt.Checked if item.data(ROL) in asignadas else Qt.Unchecked)
-        self.lista_asignar.blockSignals(False)
-
-    def _asignacion_cambiada(self, item: QListWidgetItem):
+    def _mostrar_categorias_archivo(self):
+        while self.capa_chips.count():
+            if w := self.capa_chips.takeAt(0).widget():
+                w.deleteLater()
         actual = self._archivo_actual()
         if not actual:
             return
-        self.bib.asignar(actual[0], item.data(ROL), item.checkState() == Qt.Checked)
+        asignadas = self.bib.categorias_de(actual[0])
+        nombres = [self._nombre_categoria(cid, nombre)
+                   for cid, nombre, _ in self.bib.listar_categorias() if cid in asignadas]
+        for nombre in nombres:
+            self.capa_chips.addWidget(QLabel(nombre, objectName="chip"))
+        if not nombres:
+            self.capa_chips.addWidget(QLabel("Sin categoría", objectName="pista"))
+        self.capa_chips.addStretch()
+        self.chips.setToolTip(", ".join(nombres))
+
+    def _armar_menu_categorias(self):
+        m = self.menu_editar_cat
+        m.clear()
+        actual = self._archivo_actual()
+        if not actual:
+            return
+        asignadas = self.bib.categorias_de(actual[0])
+        for cid, nombre, _ in self.bib.listar_categorias():
+            accion = m.addAction(self._nombre_categoria(cid, nombre))
+            accion.setCheckable(True)
+            accion.setChecked(cid in asignadas)
+            accion.toggled.connect(lambda activa, c=cid: self._alternar_categoria(c, activa))
+        m.addSeparator()
+        m.addAction("Nueva categoría…", lambda: self._asignar_a_nueva([actual[0]]))
+
+    def _alternar_categoria(self, cid: int, activa: bool):
+        actual = self._archivo_actual()
+        if not actual:
+            return
+        self.bib.asignar(actual[0], cid, activa)
         self._actualizar_conteos()
         self._cargar_archivos()
 
@@ -510,7 +618,7 @@ class Ventana(QMainWindow):
                 item.setText(f"{FILTROS_FIJOS[dato]}  ({n})")
             elif dato and dato[0] == "categoria" and dato[1] in conteos:
                 nombre, n = conteos[dato[1]]
-                item.setText(f"  {nombre}  ({n})")
+                item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n})")
 
     def _mover(self, paso: int):
         total = self.lista.topLevelItemCount()
@@ -579,12 +687,20 @@ class Ventana(QMainWindow):
         aviso = QMessageBox(QMessageBox.Warning, "Apagar la computadora", "", parent=self)
         aviso.setWindowFlag(Qt.WindowStaysOnTopHint)
         aviso.setStandardButtons(QMessageBox.Cancel)
-        aviso.addButton("Apagar ahora", QMessageBox.AcceptRole)
+        btn_ahora = aviso.addButton("Apagar ahora", QMessageBox.AcceptRole)
         reloj = QTimer(aviso, interval=1000)
+        apagando = [False]
+
+        def apagar():
+            if not apagando[0]:
+                apagando[0] = True
+                reloj.stop()
+                self._ejecutar_apagado()
 
         def tic():
             if segundos[0] <= 0:
-                reloj.stop()
+                # El apagado sale desde acá: no depende de que el diálogo se cierre
+                apagar()
                 aviso.done(QMessageBox.AcceptRole)
                 return
             aviso.setText(f"Terminó el video. La computadora se apaga en {segundos[0]} s.")
@@ -595,13 +711,27 @@ class Ventana(QMainWindow):
         reloj.start()
         aviso.exec()
         reloj.stop()
-        if aviso.clickedButton() is aviso.button(QMessageBox.Cancel):
-            self.statusBar().showMessage("Apagado cancelado", 5000)
+        if apagando[0]:
             return
-        if sys.platform == "win32":
-            subprocess.Popen(["shutdown", "/s", "/t", "0"])
+        if aviso.clickedButton() is btn_ahora:
+            apagar()
         else:
-            subprocess.Popen(["systemctl", "poweroff"])
+            self.statusBar().showMessage("Apagado cancelado", 5000)
+
+    def _ejecutar_apagado(self):
+        if sys.platform == "win32":
+            # /f: cierra los programas abiertos en vez de quedarse esperando que alguien confirme
+            comando = ["shutdown", "/s", "/f", "/t", "0"]
+            opciones = {"creationflags": subprocess.CREATE_NO_WINDOW, "encoding": "oem"}
+        else:
+            comando, opciones = ["systemctl", "poweroff"], {"text": True}
+        try:
+            resultado = subprocess.run(comando, capture_output=True, errors="replace", timeout=30, **opciones)
+            error = resultado.returncode and (resultado.stderr or resultado.stdout or "").strip()
+        except (OSError, subprocess.SubprocessError) as e:
+            error = str(e)
+        if error:
+            QMessageBox.warning(self, "Apagar la computadora", f"No se pudo apagar la computadora:\n\n{error}")
 
     def _reproducir_capitulo(self, ruta: str):
         """Pasa al siguiente capítulo seleccionándolo en la lista, si está visible."""
