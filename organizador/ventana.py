@@ -1,5 +1,6 @@
 """Ventana principal: filtros/categorías, lista de archivos, visor y detalles."""
 import platform
+from html import escape
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from .aviso import AvisoFlotante
 from .db import CATEGORIA_DOMINIO_PUBLICO, CATEGORIA_FAVORITOS, EXT_IMAGEN, EXT_VIDEO, Biblioteca
 from .descargas import GestorDescargas
 from .dialogo_config import DialogoConfig
@@ -22,8 +24,11 @@ from .dominio_publico import VentanaDominioPublico, eliminar_video
 from .remoto import Remoto
 from .subtitulos import EXT_SUBTITULOS
 from .titulos import titulo_de
-from .vigilancia import Vigilante
-from .subtitulos_online import buscar_para_visor
+from .torrents import GestorTorrents
+from .descargas import nombre_seguro
+from .vigilancia import Vigilante, borrar_carpetas_vacias, en_uso, mover_video
+from .subtitulos_online import buscar_para_visor, subtitulos_automaticos
+from .ventana_torrents import VentanaTorrents
 from .ventana_video import VentanaVideo
 from .visor import REPRODUCIR, VISTA_PREVIA, Visor, atajos_reproductor
 
@@ -47,6 +52,8 @@ class Ventana(QMainWindow):
         self._modo_seleccion = VISTA_PREVIA
         self.ventanas_video: list[VentanaVideo] = []
         self.ventana_dominio: VentanaDominioPublico | None = None
+        self.ventana_torrents: VentanaTorrents | None = None
+        self.aviso: AvisoFlotante | None = None
         self.dialogo_on: DialogoOn | None = None
         # (aviso, [segundos que faltan], botón «Apagar ahora») mientras corre la cuenta para apagar
         self.apagado_pendiente = None
@@ -55,7 +62,14 @@ class Ventana(QMainWindow):
         self.vigilante = Vigilante(biblioteca.ruta_db)
         self.vigilante.archivos_nuevos.connect(self._videos_encontrados)
         self.vigilante.movido.connect(self._video_movido)
+        self.vigilante.descargado.connect(lambda ruta: self._buscar_subtitulos_solos([ruta]))
+        self.vigilante.subtitulo_listo.connect(self._subtitulo_listo)
+        self.vigilante.subtitulo_fallido.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.gestor.mensaje.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        self.torrents = GestorTorrents(biblioteca.ruta_db)
+        self.torrents.terminado.connect(self._torrent_terminado)
+        self.torrents.estado.connect(self._insignia_torrents)
+        self.torrents.mensaje.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.setWindowTitle("TVon")
         self.resize(1400, 820)
         self.setAcceptDrops(True)
@@ -124,6 +138,7 @@ class Ventana(QMainWindow):
         self.visor.buscar_siguiente = self.bib.siguiente_en_categoria
         self.visor.reproducir_siguiente.connect(self.reproducir)
         self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, self.bib, self))
+        self.visor.buscar_subtitulos_subdivx.connect(self._buscar_en_subdivx)
         self.visor.pedir_apagado.connect(self._apagar_computadora)
         self.chk_apagar = QCheckBox("⏻ Apagar al terminar",
                                     toolTip="Apaga la computadora cuando termine el video que se está viendo")
@@ -200,6 +215,7 @@ class Ventana(QMainWindow):
         self._mostrar_detalles(None)
         self.gestor.iniciar()
         self.vigilante.iniciar()
+        self.torrents.iniciar()
 
     # --- Construcción -------------------------------------------------------
 
@@ -215,8 +231,10 @@ class Ventana(QMainWindow):
         barra.addAction(acc_carpeta)
         barra.addSeparator()
         barra.addAction("🎞 Dominio público", self._abrir_dominio_publico)
+        self.acc_torrents = barra.addAction("🧲 Torrents", self._abrir_torrents)
+        self.acc_torrents.setToolTip("Descargar películas con un link magnet o un archivo .torrent")
         barra.addAction("⚙ Configuración", self._abrir_configuracion)
-        self.acc_on = barra.addAction("📱 ON", self._abrir_on)
+        self.acc_on = barra.addAction("📱 OFF", self._abrir_on)
         self.acc_on.setToolTip("Manejar TVon desde el celular")
         barra.addSeparator()
         # Accesos a páginas externas: se abren en el navegador
@@ -241,6 +259,7 @@ class Ventana(QMainWindow):
         archivo.addSeparator()
         archivo.addAction("Abrir ubicación del archivo", self.abrir_ubicacion)
         archivo.addAction("Películas de dominio público…", self._abrir_dominio_publico)
+        archivo.addAction("Torrents…", self._abrir_torrents)
         archivo.addSeparator()
         archivo.addAction("Salir", QKeySequence("Ctrl+Q"), self.close)
 
@@ -785,6 +804,7 @@ class Ventana(QMainWindow):
             ventana.cerrada.connect(self.ventanas_video.remove)
             ventana.visor.apagar_al_terminar = self.chk_apagar.isChecked()
             ventana.visor.pedir_apagado.connect(self._apagar_computadora)
+            ventana.visor.buscar_subtitulos_subdivx.connect(self._buscar_en_subdivx)
             # En cascada para que no queden una encima de la otra
             desplazamiento = 40 * (len(self.ventanas_video) % 8)
             ventana.move(self.pos() + QPoint(120 + desplazamiento, 100 + desplazamiento))
@@ -795,8 +815,9 @@ class Ventana(QMainWindow):
         # Una descarga a medias queda en cola y se retoma al volver a abrir TVon
         self.gestor.detener()
         self.vigilante.detener()
+        self.torrents.detener()  # los torrents a medias se retoman al volver a abrir TVon
         self.remoto.detener()
-        for ventana in [*self.ventanas_video, self.ventana_dominio, self.dialogo_on]:
+        for ventana in [*self.ventanas_video, self.ventana_dominio, self.ventana_torrents, self.dialogo_on, self.aviso]:
             if ventana:
                 ventana.close()
         super().closeEvent(e)
@@ -811,6 +832,70 @@ class Ventana(QMainWindow):
         self.ventana_dominio.show()
         self.ventana_dominio.raise_()
         self.ventana_dominio.activateWindow()
+
+    # --- Torrents y subtítulos automáticos -----------------------------------------
+
+    def _abrir_torrents(self) -> VentanaTorrents:
+        if self.ventana_torrents is None:
+            self.ventana_torrents = VentanaTorrents(self.torrents)
+        self.ventana_torrents.show()
+        self.ventana_torrents.raise_()
+        self.ventana_torrents.activateWindow()
+        return self.ventana_torrents
+
+    def _insignia_torrents(self, descargas: list):
+        """Número de descargas en la esquina del botón; el detalle, al pasar el mouse."""
+        boton = self.barra_herramientas.widgetForAction(self.acc_torrents)
+        if not hasattr(self, "_insignia"):
+            self._insignia = QLabel(boton, objectName="insignia", alignment=Qt.AlignCenter)
+            self._insignia.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._insignia.setText(str(len(descargas)))
+        self._insignia.adjustSize()
+        self._insignia.setMinimumWidth(self._insignia.height())
+        self._insignia.move(boton.width() - self._insignia.width() - 1, 1)
+        self._insignia.setVisible(bool(descargas))
+        lineas = []
+        for d in descargas:
+            progreso = f"{100 * d['recibido'] / d['total']:.0f} %" if d["total"] else "…"
+            restante = VentanaTorrents._tiempo_restante(d)
+            estado = {"active": restante and f"faltan {restante}", "paused": "en pausa",
+                      "waiting": "en cola", "error": "error"}.get(d["estado"], "")
+            lineas.append(f"{d['nombre'] or 'Link magnet'}: {progreso}" + (f" · {estado}" if estado else ""))
+        self.acc_torrents.setToolTip("\n".join(lineas) if lineas
+                                     else "Descargar películas con un link magnet o un archivo .torrent")
+
+    def _torrent_terminado(self, videos: list, nombre: str):
+        nuevos = self.bib.agregar_archivos([Path(v) for v in videos])
+        self.cargar_filtros()
+        self.statusBar().showMessage(f"Torrent terminado: {nombre} ({nuevos} video(s) en la biblioteca)", 10000)
+        self._buscar_subtitulos_solos(videos)
+
+    def _buscar_subtitulos_solos(self, videos: list):
+        subtitulos_automaticos(self.bib, videos, lambda m: self.statusBar().showMessage(m, 10000))
+
+    def _buscar_en_subdivx(self, ruta_video: str):
+        """subdivx no tiene API ni acepta la búsqueda en el link: se abre en el navegador con el
+        título copiado, y el subtítulo que se baje a Descargas en los próximos minutos se coloca
+        solo junto a este video."""
+        if not ruta_video:
+            return
+        titulo = titulo_de(Path(ruta_video).name)  # como en las categorías: «Coyote Vs Acme»
+        QApplication.clipboard().setText(titulo)
+        QDesktopServices.openUrl(QUrl("https://subdivx.com/"))
+        self.vigilante.esperar_subtitulo(ruta_video)
+        if self.aviso is None:
+            self.aviso = AvisoFlotante()
+        self.aviso.mostrar(f"📋 Tocá el buscador de subdivx y pegá con <b>Ctrl+V</b>:<br><b>{escape(titulo)}</b><br>"
+                           "<span style='color:#cfe0ff'>El subtítulo que bajes se pone solo en el video.</span>")
+        self.statusBar().showMessage(f"Pegá «{titulo}» en el buscador de subdivx con Ctrl+V", 30000)
+
+    def _subtitulo_listo(self, ruta_video: str, ruta_sub: str):
+        if self.aviso:
+            self.aviso.hide()
+        for visor in [self.visor, *(v.visor for v in self.ventanas_video)]:
+            if visor.ruta_video == ruta_video:
+                visor.cargar_subtitulos(ruta_sub)
+        self.statusBar().showMessage(f"Subtítulo listo: {Path(ruta_sub).name}", 10000)
 
     # --- Modo ON (el celular) -----------------------------------------------------
 
@@ -835,6 +920,9 @@ class Ventana(QMainWindow):
         self._mostrar_on()
 
     def _abrir_on(self):
+        # Se abre ya encendido, con el código QR a la vista (si falla, la ventana muestra el motivo)
+        if not self.remoto.activo:
+            self.remoto.iniciar()
         if self.dialogo_on is None:
             self.dialogo_on = DialogoOn(self.remoto, self)
         self.dialogo_on.show()
@@ -845,9 +933,10 @@ class Ventana(QMainWindow):
         boton = self.barra_herramientas.widgetForAction(self.acc_on)
         boton.setProperty("encendido", self.remoto.activo)
         boton.style().polish(boton)
-        self.acc_on.setText("📱 ON ●" if self.remoto.activo else "📱 ON")
+        # Solo el botón de la barra dice OFF; el menú sigue diciendo «ON: manejar desde el celular»
+        self.acc_on.setText("📱 ON" if self.remoto.activo else "📱 OFF")
         self.acc_on.setToolTip(f"ON encendido: {self.remoto.url}" if self.remoto.activo
-                               else "Manejar TVon desde el celular")
+                               else "ON apagado: tocá para encenderlo y ver el código QR")
 
     def _mostrar_transmision(self, cantidad: int):
         self.aviso_pantalla.setVisible(cantidad > 0)
@@ -892,14 +981,47 @@ class Ventana(QMainWindow):
         existia = any(nombre.lower() == titulo.lower() for _, nombre, _ in self.bib.listar_categorias())
         cid = self.bib.categoria_id(titulo)
         # También los demás capítulos de la misma serie (mismo título)
-        ids = [aid for aid, _ruta, nombre, _tipo in self.bib.listar_archivos()
-               if titulo_de(nombre).lower() == titulo.lower()]
+        archivos = [(aid, ruta, tipo) for aid, ruta, nombre, tipo in self.bib.listar_archivos()
+                    if titulo_de(nombre).lower() == titulo.lower()]
+        ids = [aid for aid, _ruta, _tipo in archivos]
         self.bib.asignar_varios(ids, cid, True)
+        movidos, quedaron = self._organizar_en_carpeta([r for _a, r, t in archivos if t == "video"], titulo)
         self.cargar_filtros()
         accion = "Se sumaron a la categoría" if existia else "Categoría creada"
         aviso = f"{accion} «{titulo}»: {len(ids)} archivo(s)"
+        if movidos:
+            aviso += f" · {movidos} movido(s) a Peliculas\\{nombre_seguro(titulo)}"
+        if quedaron:
+            aviso += f" · {quedaron} {'quedó' if quedaron == 1 else 'quedaron'} donde estaba(n) (en uso u otro disco)"
         self.statusBar().showMessage(aviso, 8000)
         return aviso
+
+    def _organizar_en_carpeta(self, rutas: list[str], categoria: str) -> tuple[int, int]:
+        """Mueve los videos (con sus subtítulos) a Videos\\Peliculas\\<categoría>.
+        No toca los que se están reproduciendo, los que otro programa tiene abiertos ni los que
+        están en otro disco (sería copiar gigas). Devuelve (movidos, los que quedaron)."""
+        raiz = Path(self.bib.config("carpeta_videos"))
+        destino = raiz / "Peliculas" / nombre_seguro(categoria)
+        reproduciendo = {Path(v.ruta_video).resolve() for v in [self.visor, *(w.visor for w in self.ventanas_video)]
+                         if v.ruta_video}
+        movidos = quedaron = 0
+        for ruta in rutas:
+            video = Path(ruta)
+            if not video.exists() or video.parent.resolve() == destino.resolve():
+                continue
+            if (video.resolve() in reproduciendo or en_uso(video)
+                    or video.resolve().drive.lower() != destino.resolve().drive.lower()):
+                quedaron += 1
+                continue
+            try:
+                nuevo, subtitulos = mover_video(video, destino)
+            except OSError:
+                quedaron += 1
+                continue
+            self.bib.mover_ruta(video.resolve(), nuevo, subtitulos)
+            borrar_carpetas_vacias(video.parent, raiz)
+            movidos += 1
+        return movidos, quedaron
 
     def _soltar_archivo(self, ruta: str):
         """Deja de reproducir un archivo que se va a borrar (Windows no deja borrar uno abierto)."""
@@ -962,6 +1084,9 @@ class Ventana(QMainWindow):
         for url in e.mimeData().urls():
             ruta = Path(url.toLocalFile())
             # Un .srt/.vtt soltado se carga como subtítulo del video actual
+            if ruta.suffix.lower() == ".torrent":
+                self._abrir_torrents().agregar(str(ruta))
+                continue
             if ruta.suffix.lower() in EXT_SUBTITULOS:
                 if not self.visor.cargar_subtitulos(str(ruta)):
                     self.statusBar().showMessage("Abrí un video antes de soltar los subtítulos", 5000)

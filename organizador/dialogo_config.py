@@ -35,6 +35,7 @@ class DialogoConfig(QDialog):
             'Para los subtítulos creá una cuenta gratis en '
             '<a href="https://www.opensubtitles.com">opensubtitles.com</a> y pedí una clave de API en '
             '<a href="https://www.opensubtitles.com/consumers">opensubtitles.com/consumers</a>.<br>'
+            'Con la clave, TVon baja solo el subtítulo (en el primer idioma) de cada película nueva.<br>'
             'La contraseña se guarda solo en esta computadora (archivo biblioteca.db).',
             openExternalLinks=True, wordWrap=True, objectName="pista",
         )
@@ -78,7 +79,8 @@ class DialogoConfig(QDialog):
         capa_auto.addLayout(fila_carpetas)
         capa_auto.addLayout(form_mover)
         capa_auto.addWidget(QLabel(
-            "Solo se mueven archivos sueltos (no subcarpetas) y cuando terminaron de bajarse. "
+            "Se mueven cuando terminaron de bajarse; las carpetas de torrents recientes también, "
+            "apenas el programa de torrents las suelta. "
             "Los subtítulos con el mismo nombre se mueven junto con el video.",
             wordWrap=True, objectName="pista"))
 

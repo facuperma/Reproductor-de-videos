@@ -209,6 +209,17 @@ class Biblioteca:
         self.con.commit()
         return nuevos
 
+    def mover_ruta(self, vieja: Path, nueva: Path, subtitulos: dict[str, str]) -> None:
+        """El archivo cambió de lugar: conserva sus categorías y subtítulos.
+        subtitulos: {ruta vieja: ruta nueva} de los subtítulos que se movieron con él."""
+        self.con.execute("UPDATE archivos SET ruta = ?, nombre = ? WHERE ruta = ?",
+                         (str(nueva), nueva.name, str(vieja)))
+        self.con.execute("UPDATE subtitulos SET ruta_video = ? WHERE ruta_video = ?", (str(nueva), str(vieja)))
+        self.con.execute("UPDATE descargas SET ruta = ? WHERE ruta = ?", (str(nueva), str(vieja)))
+        self.con.executemany("UPDATE subtitulos SET ruta_sub = ? WHERE ruta_sub = ?",
+                             [(n, v) for v, n in subtitulos.items()])
+        self.con.commit()
+
     def agregar_carpeta(self, carpeta: Path) -> int:
         rutas = [p for p in carpeta.rglob("*") if p.is_file() and tipo_de(p)]
         return self.agregar_archivos(rutas)

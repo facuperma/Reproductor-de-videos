@@ -3,3 +3,6 @@ __pycache__/
 biblioteca.db
 *.lnk
 compilado/
+organizador/bin/
+torrents.dht
+torrents.sesion

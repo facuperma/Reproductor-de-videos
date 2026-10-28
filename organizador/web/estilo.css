@@ -138,9 +138,10 @@ input[type=range] { accent-color: var(--acento); height: 28px; }
 }
 .opcion.activa { border-color: var(--acento); background: #1a2a52; }
 .opcion .marca { width: 18px; color: var(--acento-claro); }
-.subs-retraso { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.subs-retraso b { min-width: 64px; text-align: center; }
-.subs-retraso .boton { padding: 6px 10px; min-height: 34px; }
+.subs-retraso { display: flex; flex-direction: column; gap: 6px; }
+.subs-retraso b { color: #fff; }
+.subs-pasos { display: flex; gap: 6px; }
+.subs-pasos .boton { flex: 1; padding: 6px 4px; min-height: 38px; }
 
 .banner {
   margin: 10px 16px 0; padding: 12px 14px; border-radius: var(--radio);
@@ -216,6 +217,9 @@ input[type=range] { accent-color: var(--acento); height: 28px; }
 /* --- Mouse (touchpad) y teclado --- */
 #pestana-mouse { display: flex; flex-direction: column; gap: 10px; }
 #pestana-mouse[hidden] { display: none !important; }
+/* Teclado arriba; touchpad y botones abajo, al alcance del pulgar */
+#hueco-teclado-mouse { order: -2; }
+#pestana-mouse > .campo { order: -1; }
 .touchpad {
   height: 46dvh; min-height: 220px; border-radius: var(--radio); border: 1px solid var(--borde);
   background: radial-gradient(circle at 50% 40%, var(--panel-claro), var(--fondo-hondo));

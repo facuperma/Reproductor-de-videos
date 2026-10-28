@@ -92,11 +92,17 @@
         <summary>CC Subtítulos <span id="subs-resumen" class="pista"></span></summary>
         <div id="subs-opciones" class="opciones"></div>
         <div class="subs-retraso">
-          <span>Retraso</span>
-          <button data-accion="retraso" data-ms="-50" class="boton">−50 ms</button>
-          <b id="subs-retraso">0 ms</b>
-          <button data-accion="retraso" data-ms="50" class="boton">+50 ms</button>
-          <button data-accion="retraso" data-valor="0" class="boton">0</button>
+          <span class="pista">Sincronía: <b id="subs-retraso">sincronizados</b></span>
+          <div class="subs-pasos">
+            <button data-accion="retraso" data-ms="-500" class="boton" aria-label="0,5 s antes">◀◀</button>
+            <button data-accion="retraso" data-ms="-100" class="boton" aria-label="0,1 s antes">◀ Antes</button>
+            <button data-accion="retraso" data-ms="100" class="boton" aria-label="0,1 s después">Después ▶</button>
+            <button data-accion="retraso" data-ms="500" class="boton" aria-label="0,5 s después">▶▶</button>
+          </div>
+          <div class="subs-pasos">
+            <button data-accion="sincronizar_ahora" class="boton">🎯 Ahora habla</button>
+            <button data-accion="retraso" data-valor="0" class="boton">↺ Sin ajuste</button>
+          </div>
         </div>
         <div id="subs-tamanos" class="chips"></div>
         <button id="btn-buscar-subs" data-accion="buscar_subtitulos" class="boton ancho">🌐 Buscar en internet (OpenSubtitles)</button>

@@ -8,7 +8,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaMetaData, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
-    QApplication, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
     QSizePolicy, QSlider, QStackedWidget, QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -25,6 +25,14 @@ DURACION_LARGA_MS = 3_600_000
 LOGO = Path(__file__).parent / "icono.png"
 
 
+def texto_sincronia(ms: int) -> str:
+    """-1500 -> «1,5 s antes», 300 -> «0,3 s después», 0 -> «sincronizados»."""
+    if not ms:
+        return "sincronizados"
+    segundos = f"{abs(ms) / 1000:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    return f"{segundos} s {'después' if ms > 0 else 'antes'}"
+
+
 def atajos_reproductor(ventana: QWidget, visor: "Visor", alternar_completa):
     """Atajos de teclado del reproductor, propios de cada ventana."""
     for tecla, accion in (
@@ -35,9 +43,9 @@ def atajos_reproductor(ventana: QWidget, visor: "Visor", alternar_completa):
         ("Shift+Left", lambda: visor.adelantar(-15000)),
         ("F", alternar_completa),
         ("Escape", lambda: ventana.isFullScreen() and alternar_completa()),
-        # Igual que VLC: G adelanta los subtítulos, H los atrasa (50 ms)
-        ("G", lambda: visor.ajustar_retraso(-50)),
-        ("H", lambda: visor.ajustar_retraso(50)),
+        # Como en VLC: G muestra los subtítulos antes, H después
+        ("G", lambda: visor.ajustar_retraso(-100)),
+        ("H", lambda: visor.ajustar_retraso(100)),
         ("N", visor.siguiente_capitulo),
     ):
         QShortcut(QKeySequence(tecla), ventana).activated.connect(accion)
@@ -268,6 +276,7 @@ class Visor(QWidget):
     reproducir_siguiente = Signal(str)
     # Pide buscar subtítulos en internet para este video (lo resuelve quien usa el visor)
     buscar_subtitulos_online = Signal(str)
+    buscar_subtitulos_subdivx = Signal(str)
     # Terminó el video con «Apagar al terminar» marcado
     pedir_apagado = Signal()
 
@@ -345,21 +354,39 @@ class Visor(QWidget):
         for w in (self.lbl_tiempo, self.btn_mute, self.volumen, self.btn_cola, self.btn_subs, self.btn_completa):
             fila.addWidget(w)
 
-        # Barra de sincronización, visible con un archivo de subtítulos cargado
+        # Barra de sincronización, visible con un archivo de subtítulos cargado.
+        # En palabras («1,5 s antes») en vez de un retraso con signo, que confunde.
         self.lbl_sub = QLabel()
-        self.spin_retraso = QDoubleSpinBox(decimals=2, singleStep=0.05, minimum=-600, maximum=600, suffix=" s")
-        self.spin_retraso.setToolTip("Positivo: los subtítulos aparecen más tarde.\nNegativo: aparecen antes.")
-        self.spin_retraso.valueChanged.connect(self._retraso_cambiado)
-        btn_reiniciar = QPushButton("Reiniciar", toolTip="Volver a 0")
-        btn_reiniciar.clicked.connect(lambda: self.spin_retraso.setValue(0))
+        self.lbl_sincronia = QLabel(alignment=Qt.AlignCenter, minimumWidth=120)
+        self.lbl_sincronia.setToolTip("Cómo salen los subtítulos respecto del archivo original")
         self.barra_subs = QWidget()
         fila_subs = QHBoxLayout(self.barra_subs)
         fila_subs.setContentsMargins(4, 2, 4, 0)
+        fila_subs.setSpacing(4)
         fila_subs.addWidget(self.lbl_sub, 1)
-        fila_subs.addWidget(QLabel("Retraso de subtítulos:"))
-        fila_subs.addWidget(self.spin_retraso)
-        fila_subs.addWidget(btn_reiniciar)
-        fila_subs.addWidget(QLabel("(G / H)", objectName="pista"))
+        fila_subs.addWidget(QLabel("Sincronía:"))
+        botones = [("◀◀", -500, "Mostrar los subtítulos 0,5 s antes"),
+                   ("◀", -100, "Mostrar los subtítulos 0,1 s antes (G)"), (None, 0, ""),
+                   ("▶", 100, "Mostrar los subtítulos 0,1 s después (H)"),
+                   ("▶▶", 500, "Mostrar los subtítulos 0,5 s después")]
+        botones_sinc = []
+        for texto, ms, ayuda in botones:
+            if texto is None:
+                fila_subs.addWidget(self.lbl_sincronia)
+                continue
+            boton = QPushButton(texto, objectName="chico", toolTip=ayuda)
+            boton.clicked.connect(lambda _=False, d=ms: self.ajustar_retraso(d))
+            fila_subs.addWidget(boton)
+            botones_sinc.append(boton)
+        btn_sinc_ahora = QPushButton("🎯 Ahora", objectName="chico", toolTip=(
+            "Tocalo justo cuando alguien empieza a hablar:\n"
+            "el subtítulo más cercano se acomoda a ese momento"))
+        btn_sinc_ahora.clicked.connect(self.sincronizar_ahora)
+        btn_cero = QPushButton("↺", objectName="chico", toolTip="Sin ajuste (como viene el archivo)")
+        btn_cero.clicked.connect(lambda: self.fijar_retraso(0))
+        fila_subs.addWidget(btn_sinc_ahora)
+        fila_subs.addWidget(btn_cero)
+        botones_sinc += [btn_sinc_ahora, btn_cero]
 
         # Aviso de siguiente capítulo, sobre el video
         self.panel_sig = QFrame(self.pantalla, objectName="panelSiguiente")
@@ -382,7 +409,7 @@ class Visor(QWidget):
 
         for b in (self.btn_play, self.btn_stop, self.btn_siguiente, self.btn_atras15,
                   self.btn_adelante15, self.btn_mute, self.btn_subs, self.btn_cola,
-                  self.btn_completa, btn_reiniciar, self.barra, self.volumen, btn_ahora, btn_cancelar):
+                  self.btn_completa, *botones_sinc, self.barra, self.volumen, btn_ahora, btn_cancelar):
             b.setFocusPolicy(Qt.NoFocus)
 
         capa = QVBoxLayout(self)
@@ -587,10 +614,29 @@ class Visor(QWidget):
             self.pantalla.mostrar_osd("Subtítulos desactivados")
 
     def ajustar_retraso(self, delta_ms: int):
+        """Negativo: los subtítulos salen antes; positivo: después."""
         if self.subs is not None:
-            self.spin_retraso.setValue(self.spin_retraso.value() + delta_ms / 1000)
+            self.fijar_retraso(self.retraso_ms + delta_ms)
         elif self._es_video:
             self.pantalla.mostrar_osd("No hay un archivo de subtítulos cargado")
+
+    def fijar_retraso(self, ms: int):
+        if self.subs is None:
+            return
+        self._poner_retraso(max(-600_000, min(600_000, int(ms))))
+        self._actualizar_subtitulo()
+        self._guardar_subtitulos()
+        self.pantalla.mostrar_osd(f"Subtítulos: {texto_sincronia(self.retraso_ms)}")
+
+    def sincronizar_ahora(self):
+        """Se toca cuando alguien empieza a hablar: el subtítulo que empieza más cerca de este
+        momento (con el ajuste actual) pasa a empezar justo ahora."""
+        if self.subs is None or not self.subs.cues:
+            self.pantalla.mostrar_osd("No hay un archivo de subtítulos cargado")
+            return
+        ahora = self.reproductor.position()
+        inicio = min((c[0] for c in self.subs.cues), key=lambda a: abs(a + self.retraso_ms - ahora))
+        self.fijar_retraso(ahora - inicio)
 
     def _descartar_subtitulos(self):
         self.subs = self.ruta_sub = None
@@ -599,15 +645,7 @@ class Visor(QWidget):
 
     def _poner_retraso(self, ms: int):
         self.retraso_ms = ms
-        self.spin_retraso.blockSignals(True)
-        self.spin_retraso.setValue(ms / 1000)
-        self.spin_retraso.blockSignals(False)
-
-    def _retraso_cambiado(self, segundos: float):
-        self.retraso_ms = round(segundos * 1000)
-        self._actualizar_subtitulo()
-        self._guardar_subtitulos()
-        self.pantalla.mostrar_osd(f"Retraso de subtítulos: {self.retraso_ms:+d} ms")
+        self.lbl_sincronia.setText(texto_sincronia(ms))
 
     def _guardar_subtitulos(self):
         self.subtitulos_cambiados.emit(self.ruta_video, self.ruta_sub, self.retraso_ms)
@@ -659,6 +697,8 @@ class Visor(QWidget):
         m.addAction("Cargar archivo de subtítulos…", self._elegir_archivo_subs).setEnabled(self._es_video)
         m.addAction("🌐 Buscar en internet (OpenSubtitles)",
                     lambda: self.buscar_subtitulos_online.emit(self.ruta_video)).setEnabled(self._es_video)
+        m.addAction("🌐 Buscar en subdivx…",
+                    lambda: self.buscar_subtitulos_subdivx.emit(self.ruta_video)).setEnabled(self._es_video)
         archivos = self.archivos_subtitulos()
         if archivos:
             m.addSection("Archivos de subtítulos")

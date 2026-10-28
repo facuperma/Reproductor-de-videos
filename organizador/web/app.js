@@ -248,7 +248,7 @@ function mostrarSubtitulos(s, conClave) {
   }
   const conArchivo = s.archivos.some((a) => a.activo);
   for (const b of $$(".subs-retraso button")) b.disabled = !conArchivo;
-  $("#subs-retraso").textContent = `${s.retraso > 0 ? "+" : ""}${s.retraso} ms`;
+  $("#subs-retraso").textContent = textoSincronia(s.retraso);
   const tamanos = $("#subs-tamanos");
   const firmaT = JSON.stringify([s.tamanos, s.escala]);
   if (tamanos.dataset.firma !== firmaT) {
@@ -334,6 +334,13 @@ function prepararReproductor() {
   });
   $("#chk-apagar").addEventListener("change", (ev) => accion("apagar_al_terminar", { activo: ev.target.checked }).catch(() => {}));
   $("#chk-mover").addEventListener("change", (ev) => accion("mover_descargas", { activo: ev.target.checked }).catch(() => {}));
+}
+
+// -1500 -> «1,5 s antes», 300 -> «0,3 s después» (igual que en la PC)
+function textoSincronia(ms) {
+  if (!ms) return "sincronizados";
+  const s = String(+(Math.abs(ms) / 1000).toFixed(2)).replace(".", ",");
+  return `${s} s ${ms > 0 ? "después" : "antes"}`;
 }
 
 // Botones con data-accion: la acción y sus datos salen de los atributos
@@ -802,6 +809,20 @@ function encolarEntrada(datos) {
   enviarCola();
 }
 
+// Después de un clic: si en la PC quedó un campo de texto enfocado, se abre el teclado del celular
+const CLICS_IZQUIERDOS = new Set(["clic", "doble", "clic_aqui"]);
+let consultaEscribir = 0;
+
+async function revisarSiHayQueEscribir() {
+  const n = ++consultaEscribir;
+  try {
+    const r = await api("/api/pantalla/escribiendo");
+    if (n !== consultaEscribir || !r.escribiendo || $("#teclado").hidden) return;  // llegó otro clic
+    const campo = $("#vivo").hidden ? $("#texto") : $("#vivo");
+    if (document.activeElement !== campo) campo.focus();
+  } catch {}
+}
+
 function moverPuntero(dx, dy) {
   cola.dx += dx;
   cola.dy += dy;
@@ -815,6 +836,7 @@ async function enviarCola() {
     for (let datos; (datos = cola.pendientes.shift() || sacarMovimiento());) {
       try {
         await api("/api/pantalla/entrada", datos);
+        if (CLICS_IZQUIERDOS.has(datos.tipo) && datos.boton !== "derecho") revisarSiHayQueEscribir();
       } catch (e) {
         cola.pendientes = [];
         cola.dx = cola.dy = 0;
@@ -939,11 +961,19 @@ function prepararToques() {
       ($("#vivo").hidden ? $("#texto") : $("#vivo")).focus();
     });
   }
-  $("#form-texto").addEventListener("submit", (ev) => {
-    ev.preventDefault();
+  // El botón Enviar manda solo el texto; Enter manda el texto y un Enter, así en la PC pasa lo
+  // de siempre: busca, envía el mensaje o, en Word, salta de línea
+  const enviarTexto = (conEnter) => {
     const t = $("#texto");
     if (t.value) entrada({ tipo: "texto", texto: t.value });
+    if (conEnter) entrada({ tipo: "teclas", teclas: "enter" });
     t.value = "";
+  };
+  $("#form-texto").addEventListener("submit", (ev) => { ev.preventDefault(); enviarTexto(false); });
+  $("#texto").addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || ev.isComposing) return;
+    ev.preventDefault();
+    enviarTexto(true);
   });
   for (const b of $$("[data-teclas]")) {
     b.addEventListener("click", () => {
@@ -960,6 +990,8 @@ const mouse = { velocidad: 1.75, mantenido: false };
 
 async function prepararMouse() {
   $("#hueco-teclado-mouse").append($("#teclado"));
+  // El touchpad queda abajo, al alcance del pulgar
+  requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
   $("#mouse-error").hidden = true;
   try {
     const r = await api("/api/pantalla/monitores");
@@ -1114,6 +1146,12 @@ async function iniciar() {
   prepararToques();
   prepararTouchpad();
   prepararTecladoVivo();
+  // Tocar fuera del teclado (el touchpad, un botón, la pantalla) suelta el recuadro de escribir:
+  // si queda con el foco, Android vuelve a mostrarlo y lleva la página hasta él
+  document.addEventListener("pointerdown", (ev) => {
+    const activo = document.activeElement;
+    if (activo?.matches("#vivo, #texto") && !ev.target.closest("#teclado")) activo.blur();
+  }, true);
 
   if (!(await emparejar())) return;
   try {

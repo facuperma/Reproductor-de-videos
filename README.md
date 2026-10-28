@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.3.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.3.0.exe)** (28 MB)
+**[⬇ TVon-Setup-1.4.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.0.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -23,7 +23,7 @@ python -m venv .venv
 
 Doble clic en `TVon.bat` o `.venv\Scripts\python main.py` (la biblioteca queda en la carpeta del proyecto).
 
-Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scripts\python empaquetado\construir.py` (requiere [Inno Setup 6](https://jrsoftware.org/isinfo.php)). Queda en `compilado\`.
+Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scripts\python empaquetado\construir.py` (requiere [Inno Setup 6](https://jrsoftware.org/isinfo.php)). Queda en `compilado\`. El script baja [aria2](https://aria2.github.io) (motor de torrents) a `organizador\bin\` si no está, y verifica su huella.
 
 ## Uso
 
@@ -40,7 +40,7 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 
 ### 📱 ON: manejar TVon desde el celular
 
-Botón **📱 ON** en la barra superior (o *Configuración → ON*). Encendelo y escaneá el código QR con el celular (Android, en Chrome). El celular y la PC tienen que estar en la misma red wifi. Para tenerlo como app: en Chrome, menú ⋮ → *Agregar a la pantalla principal*.
+Botón **📱 OFF / ON** en la barra superior (o *Configuración → ON*): al tocarlo se enciende y muestra el código QR; escanealo con el celular (Android, en Chrome). El celular y la PC tienen que estar en la misma red wifi. Para tenerlo como app: en Chrome, menú ⋮ → *Agregar a la pantalla principal*.
 
 - **Reproductor:** play/pausa, saltos de 5 y 15 s, barra de tiempo, volumen, siguiente capítulo o de la cola, anterior/siguiente de la lista, pantalla completa, *Apagar al terminar* (y cancelar la cuenta para apagar). Muestra lo que se está viendo.
 - **Subtítulos:** elegir archivo o pista, desactivarlos, retraso, tamaño y buscar en OpenSubtitles.
@@ -58,12 +58,22 @@ Seguridad: el QR lleva un código de emparejamiento; cada celular recibe su prop
 ### Biblioteca automática
 
 - Los videos de **Videos** y **Documentos** (con subcarpetas) se suman solos a la biblioteca: al abrir TVon y cada minuto. Se saltean carpetas ocultas o de programación (`.venv`, `node_modules`…).
-- Los videos que terminan de bajarse en **Descargas** se mueven solos a **Videos** (con sus subtítulos) y entran a la biblioteca. Solo archivos sueltos, no subcarpetas, y recién cuando ningún programa los tiene abiertos.
+- Los videos que terminan de bajarse en **Descargas** se mueven solos a **Videos** (con sus subtítulos) y entran a la biblioteca. También los de las carpetas que crean los programas de torrents (uTorrent, qBittorrent), si son del último mes; los «sample» se ignoran.
+- Si el programa de torrents sigue compartiendo el archivo, la película aparece igual en la biblioteca apenas termina de bajar, y se mueve a Videos cuando el programa la suelta (conserva categorías y subtítulos).
 - Todo se ajusta en **⚙ Configuración** (agregar o quitar carpetas, desactivar el movimiento).
 
 ### Categoría con el título
 
-Con un solo archivo seleccionado aparece el botón **＋ Categoría: …** (también en el clic derecho). Crea una categoría con el título limpio de la película o serie —«Breaking.Bad.S01E02.720p.mkv» → «Breaking Bad»— y le suma todos los archivos con ese mismo título, así el siguiente capítulo funciona solo.
+Con un solo archivo seleccionado aparece el botón **＋ Categoría: …** (también en el clic derecho). Crea una categoría con el título limpio de la película o serie —«Breaking.Bad.S01E02.720p.mkv» → «Breaking Bad»— y le suma todos los archivos con ese mismo título, así el siguiente capítulo funciona solo. Además ordena el disco: esos videos, con sus subtítulos, pasan a `Videos\Peliculas\<categoría>\` (no se mueven los que se están reproduciendo, los que otro programa tiene abiertos ni los que están en otro disco).
+
+### 🧲 Torrents
+
+Botón **🧲 Torrents** en la barra superior: pegá un link magnet (si lo copiaste, ya aparece pegado), abrí un `.torrent` o soltalo sobre TVon. Muestra la cola con progreso, velocidad y tiempo restante; se puede pausar, reanudar y cancelar (borra lo que había bajado).
+
+- Baja a una carpeta oculta dentro de Videos; al terminar, la película pasa a **Videos**, entra a la biblioteca y se le buscan subtítulos.
+- Lo que quede a medias se retoma al volver a abrir TVon.
+- Usa [aria2](https://aria2.github.io) (GPL v2), que viene incluido. La primera vez, Windows pregunta por el firewall para `aria2c.exe`: tocá **Permitir**.
+- Mientras baja, el torrent también se comparte con otros. Al terminar deja de compartir.
 
 ### Películas de dominio público
 
@@ -107,8 +117,10 @@ Marcá **⏻ Apagar al terminar** en los controles: cuando termine el video (en 
 - Si junto al video hay un `.srt` o `.vtt` con el mismo nombre (`video.srt`, `video.es.srt`), se carga solo (prefiere español).
 - Botón **CC**: cargar otro archivo, cambiar entre los idiomas que haya junto al video, elegir pistas incluidas en el video (p. ej. en .mkv), desactivar y cambiar el tamaño.
 - **🌐 Buscar en internet**: descarga subtítulos de [OpenSubtitles](https://www.opensubtitles.com) en los idiomas configurados (por defecto español e inglés). Usa la huella del archivo para encontrar los que están sincronizados con ese video. Hace falta una clave de API gratuita (⚙ Configuración).
+- **Automáticos:** con la clave de OpenSubtitles, cada película nueva (de torrents o de Descargas) recibe sola el subtítulo del primer idioma configurado. Es uno por película, porque la cuenta gratis tiene pocas descargas por día.
+- **🌐 Buscar en subdivx** (en el botón CC): abre [subdivx.com](https://subdivx.com/) con el título limpio de la película copiado, y un cartel en la esquina de la pantalla recuerda pegarlo en el buscador con **Ctrl+V**. El subtítulo que bajes (`.srt`, `.zip`, `.rar` o `.7z`) se coloca solo junto al video y se activa. Si el comprimido trae varios, elige el que más se parece al nombre del video. subdivx no tiene API, por eso la descarga la hacés vos.
 - También se puede soltar el `.srt` sobre la ventana.
-- **Retraso de subtítulos**: con la casilla bajo los controles o con G / H (±50 ms, como en VLC). Positivo = aparecen más tarde.
+- **Sincronía de subtítulos**: bajo los controles dice cómo salen («1,5 s antes», «sincronizados»). ◀◀ / ◀ los muestran 0,5 / 0,1 s antes; ▶ / ▶▶, después (también G / H). **🎯 Ahora**: tocalo justo cuando alguien empieza a hablar y el subtítulo más cercano se acomoda a ese momento. ↺ vuelve a como viene el archivo.
 - El archivo de subtítulos y el retraso se recuerdan para cada video.
 
 ### Atajos
@@ -122,9 +134,11 @@ Marcá **⏻ Apagar al terminar** en los controles: cuando termine el video (en 
 | F o doble clic | Pantalla completa (Esc para salir) |
 | N | Siguiente de la cola o capítulo |
 | Supr | Eliminar los archivos seleccionados (a la Papelera) |
-| G / H | Subtítulos 50 ms antes / después |
+| G / H | Subtítulos 0,1 s antes / después |
 | Ctrl+F | Buscar |
 
 ## Licencia
 
 Código abierto bajo la [licencia MIT](LICENSE). © 2026 Faierwall.
+
+Incluye [aria2](https://github.com/aria2/aria2) 1.37.0 sin modificar, como programa aparte, bajo la licencia GPL v2 (`organizador\bin\aria2-LICENCIA.txt`). Su código fuente está en github.com/aria2/aria2.

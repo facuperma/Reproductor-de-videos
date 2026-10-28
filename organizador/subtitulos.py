@@ -1,10 +1,17 @@
 """Lectura de subtítulos externos (.srt y .vtt)."""
 import glob
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from bisect import bisect_right
 from pathlib import Path
 
 EXT_SUBTITULOS = {".srt", ".vtt"}
+# Así vienen los de subdivx. El tar de Windows (bsdtar) abre los tres.
+EXT_COMPRIMIDOS = {".zip", ".rar", ".7z"}
 
 _TIEMPO = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3})")
 # Etiquetas HTML (<i>, <font ...>) y de estilo ASS ({\an8})
@@ -82,3 +89,38 @@ def descripcion(ruta_sub: str, ruta_video: str) -> str:
     extra = Path(ruta_sub).stem[len(Path(ruta_video).stem):].strip(".")
     nombre = Path(ruta_sub).name
     return f"{IDIOMAS.get(extra.lower(), extra)} ({nombre})" if extra else nombre
+
+
+def _palabras(texto: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", texto.lower()))
+
+
+def colocar_subtitulo(archivo: Path, ruta_video: str, idioma: str = "es") -> str | None:
+    """Pone un subtítulo descargado (suelto o comprimido) junto al video, como «video.es.srt».
+    Si el comprimido trae varios, elige el que más se parece al nombre del video.
+    Devuelve la ruta nueva, o None si no había subtítulos."""
+    video = Path(ruta_video)
+    with tempfile.TemporaryDirectory() as carpeta:
+        if archivo.suffix.lower() in EXT_COMPRIMIDOS:
+            tar = Path(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "tar.exe")
+            try:
+                subprocess.run([str(tar) if tar.exists() else "tar", "-xf", str(archivo), "-C", carpeta],
+                               capture_output=True, timeout=60,
+                               creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            except subprocess.TimeoutExpired:
+                return None
+            candidatos = [p for p in Path(carpeta).rglob("*") if p.suffix.lower() in EXT_SUBTITULOS]
+        else:
+            candidatos = [archivo]
+        if not candidatos:
+            return None
+        nombre = _palabras(video.stem)
+        elegido = max(candidatos, key=lambda p: (len(_palabras(p.stem) & nombre), p.stat().st_size))
+        destino = video.with_name(f"{video.stem}.{idioma}{elegido.suffix.lower()}")
+        n = 2
+        while destino.exists():
+            destino = video.with_name(f"{video.stem}.{idioma}{n}{elegido.suffix.lower()}")
+            n += 1
+        shutil.copyfile(elegido, destino)
+    archivo.unlink(missing_ok=True)  # ya está junto al video: no queda suelto en Descargas
+    return str(destino)
