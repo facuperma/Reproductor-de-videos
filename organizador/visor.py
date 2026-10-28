@@ -105,6 +105,13 @@ class PantallaVideo(QWidget):
         self._texto = ""
         self.update()
 
+    def cuadro(self):
+        """El cuadro que se está mostrando, como QImage (o None)."""
+        if self._frame is None or not self._frame.isValid():
+            return None
+        img = self._frame.toImage()
+        return None if img.isNull() else img
+
     def colocar_panel(self):
         if self.panel is not None:
             self.panel.adjustSize()
@@ -360,8 +367,8 @@ class Visor(QWidget):
         self.lbl_sig_nombre = QLabel()
         btn_ahora = QPushButton("▶ Reproducir ahora")
         btn_cancelar = QPushButton("Cancelar")
-        btn_ahora.clicked.connect(self._reproducir_siguiente)
-        btn_cancelar.clicked.connect(self._cancelar_siguiente)
+        btn_ahora.clicked.connect(self.siguiente_ahora)
+        btn_cancelar.clicked.connect(self.cancelar_siguiente)
         capa_sig = QVBoxLayout(self.panel_sig)
         capa_sig.setContentsMargins(16, 12, 16, 12)
         capa_sig.addWidget(self.lbl_sig_cuenta)
@@ -399,7 +406,7 @@ class Visor(QWidget):
         self.pantalla.clic.connect(lambda: self._vista_previa and self.empezar())
         self.imagen.doble_clic.connect(self.pedir_pantalla_completa)
         self.pantalla.mouse_movido.connect(self._actividad)
-        self.btn_mute.clicked.connect(self._alternar_mute)
+        self.btn_mute.clicked.connect(self.alternar_mute)
         self.volumen.valueChanged.connect(lambda v: self.audio.setVolume(v / 100))
         self.barra.sliderMoved.connect(self.reproductor.setPosition)
         self.sink.videoFrameChanged.connect(self._nuevo_frame)
@@ -480,6 +487,25 @@ class Visor(QWidget):
     def posicion_actual(self) -> int:
         """Posición para retomar el video (en vista previa, todavía no empezó)."""
         return self._inicio_ms if self._vista_previa else self.reproductor.position()
+
+    @property
+    def es_video(self) -> bool:
+        return self._es_video
+
+    @property
+    def en_vista_previa(self) -> bool:
+        return self._vista_previa
+
+    def ir_a(self, ms: int):
+        """Salta a ese punto; desde la vista previa, empieza a reproducir ahí."""
+        if not self._es_video:
+            return
+        ms = max(0, min(ms, self.reproductor.duration()))
+        if self._vista_previa:
+            self._inicio_ms = ms
+            self.empezar()
+        else:
+            self.reproductor.setPosition(ms)
 
     def alternar_play(self):
         if not self._es_video:
@@ -600,7 +626,7 @@ class Visor(QWidget):
         if ruta:
             self.cargar_subtitulos(ruta)
 
-    def _usar_pista_interna(self, indice: int):
+    def usar_pista_interna(self, indice: int):
         self._descartar_subtitulos()
         self._actualizar_controles()
         self.reproductor.setActiveSubtitleTrack(indice)
@@ -614,39 +640,49 @@ class Visor(QWidget):
             partes.append(titulo)
         return f"Pista {indice + 1}" + (f": {' – '.join(partes)}" if partes else "")
 
+    def archivos_subtitulos(self) -> list[tuple[str, str]]:
+        """(ruta, descripción) de los subtítulos que se pueden elegir para el video actual."""
+        junto = subtitulos_junto_a(self.ruta_video) if self.ruta_video else []
+        if self.ruta_sub and self.ruta_sub not in junto:
+            junto.append(self.ruta_sub)
+        return [(ruta, descripcion(ruta, self.ruta_video)) for ruta in junto]
+
+    def pistas_subtitulos(self) -> list[tuple[str, bool]]:
+        """(nombre, activa) de las pistas de subtítulos que trae el video."""
+        activa = self.reproductor.activeSubtitleTrack()
+        return [(self._nombre_pista(datos, i), i == activa and self.subs is None)
+                for i, datos in enumerate(self.reproductor.subtitleTracks())]
+
     def _armar_menu_subs(self):
         m = self.menu_subs
         m.clear()
         m.addAction("Cargar archivo de subtítulos…", self._elegir_archivo_subs).setEnabled(self._es_video)
         m.addAction("🌐 Buscar en internet (OpenSubtitles)",
                     lambda: self.buscar_subtitulos_online.emit(self.ruta_video)).setEnabled(self._es_video)
-        junto = subtitulos_junto_a(self.ruta_video) if self.ruta_video else []
-        if self.ruta_sub and self.ruta_sub not in junto:
-            junto.append(self.ruta_sub)
-        if junto:
+        archivos = self.archivos_subtitulos()
+        if archivos:
             m.addSection("Archivos de subtítulos")
-        for ruta in junto:
-            accion = m.addAction(descripcion(ruta, self.ruta_video), lambda r=ruta: self.cargar_subtitulos(r))
+        for ruta, texto in archivos:
+            accion = m.addAction(texto, lambda r=ruta: self.cargar_subtitulos(r))
             accion.setCheckable(True)
             accion.setChecked(ruta == self.ruta_sub)
-        pistas = self.reproductor.subtitleTracks()
-        activa = self.reproductor.activeSubtitleTrack()
+        pistas = self.pistas_subtitulos()
         if pistas:
             m.addSection("Pistas incluidas en el video")
-        for i, datos in enumerate(pistas):
-            accion = m.addAction(self._nombre_pista(datos, i), lambda i=i: self._usar_pista_interna(i))
+        for i, (nombre, activa) in enumerate(pistas):
+            accion = m.addAction(nombre, lambda i=i: self.usar_pista_interna(i))
             accion.setCheckable(True)
-            accion.setChecked(i == activa and self.subs is None)
+            accion.setChecked(activa)
         m.addSeparator()
         m.addAction("Desactivar subtítulos", self.quitar_subtitulos).setEnabled(
-            self.subs is not None or activa >= 0)
+            self.subs is not None or self.reproductor.activeSubtitleTrack() >= 0)
         tamanos = m.addMenu("Tamaño del texto")
         for nombre, escala in TAMANOS_SUB:
-            accion = tamanos.addAction(nombre, lambda e=escala: self._cambiar_tamano(e))
+            accion = tamanos.addAction(nombre, lambda e=escala: self.cambiar_tamano_sub(e))
             accion.setCheckable(True)
             accion.setChecked(self.pantalla.escala_sub == escala)
 
-    def _cambiar_tamano(self, escala: float):
+    def cambiar_tamano_sub(self, escala: float):
         self.pantalla.escala_sub = escala
         self.pantalla.update()
 
@@ -659,7 +695,7 @@ class Visor(QWidget):
     def _salida_audio_cambiada(self):
         self.audio.setDevice(QMediaDevices.defaultAudioOutput())
 
-    def _alternar_mute(self):
+    def alternar_mute(self):
         self.audio.setMuted(not self.audio.isMuted())
         icono = QStyle.SP_MediaVolumeMuted if self.audio.isMuted() else QStyle.SP_MediaVolume
         self.btn_mute.setIcon(self.style().standardIcon(icono))
@@ -690,7 +726,7 @@ class Visor(QWidget):
             return self.buscar_siguiente(self.ruta_video)
         return None
 
-    def _emitir_siguiente(self, ruta: str):
+    def pasar_a(self, ruta: str):
         if ruta in self.cola:
             self.cola.remove(ruta)
             self._actualizar_cola()
@@ -700,7 +736,7 @@ class Visor(QWidget):
         if not self._es_video:
             return
         if siguiente := self._buscar_siguiente():
-            self._emitir_siguiente(siguiente)
+            self.pasar_a(siguiente)
         else:
             self.pantalla.mostrar_osd("No hay videos en la cola ni un capítulo siguiente")
 
@@ -715,7 +751,7 @@ class Visor(QWidget):
         self._ruta_siguiente = None
         self._actualizar_cola()
         if self.cola and (not self._es_video or self.reproductor.mediaStatus() == QMediaPlayer.EndOfMedia):
-            self._emitir_siguiente(self.cola[0])
+            self.pasar_a(self.cola[0])
         return len(nuevas)
 
     def quitar_de_cola(self, ruta: str):
@@ -734,12 +770,12 @@ class Visor(QWidget):
         m.addSection("A continuación")
         for i, ruta in enumerate(self.cola, 1):
             sub = m.addMenu(f"{i}. {Path(ruta).stem}")
-            sub.addAction("▶ Reproducir ahora", lambda r=ruta: self._emitir_siguiente(r))
+            sub.addAction("▶ Reproducir ahora", lambda r=ruta: self.pasar_a(r))
             sub.addAction("Quitar de la cola", lambda r=ruta: self.quitar_de_cola(r))
         m.addSeparator()
-        m.addAction("Vaciar la cola", self._vaciar_cola)
+        m.addAction("Vaciar la cola", self.vaciar_cola)
 
-    def _vaciar_cola(self):
+    def vaciar_cola(self):
         self.cola.clear()
         self._ruta_siguiente = None
         self._actualizar_cola()
@@ -772,13 +808,13 @@ class Visor(QWidget):
         if self.apagar_al_terminar:
             self.pedir_apagado.emit()
         elif not self._siguiente_cancelado:
-            self._reproducir_siguiente()
+            self.siguiente_ahora()
 
-    def _reproducir_siguiente(self):
+    def siguiente_ahora(self):
         if ruta := self._ruta_siguiente or self._buscar_siguiente():
-            self._emitir_siguiente(ruta)
+            self.pasar_a(ruta)
 
-    def _cancelar_siguiente(self):
+    def cancelar_siguiente(self):
         self._siguiente_cancelado = True
         self.panel_sig.hide()
 

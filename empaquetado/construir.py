@@ -51,6 +51,8 @@ def main():
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", "TVon",
         "--icon", str(RAIZ / "organizador" / "icono.ico"),
         "--add-data", f"{RAIZ / 'organizador' / 'icono.png'};organizador",
+        # La app del celular (modo ON)
+        "--add-data", f"{RAIZ / 'organizador' / 'web'};organizador/web",
         "--distpath", str(SALIDA / "dist"), "--workpath", str(SALIDA / "build"),
         "--specpath", str(SALIDA), str(RAIZ / "main.py"),
     ], check=True)

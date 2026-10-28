@@ -7,6 +7,10 @@ QToolButton { padding: 6px 10px; border-radius: 6px; }
 QToolButton:hover { background: #1f2d4d; }
 QLabel#titulo { font-size: 11pt; font-weight: 600; color: #ffffff; }
 QLabel#pista { color: #7a8599; }
+QToolButton[encendido="true"] { color: #4ade80; font-weight: 600; }
+QLabel#enVivo { color: #ff8080; font-weight: 600; }
+QPushButton#interruptor { font-size: 12pt; font-weight: 600; padding: 10px; }
+QPushButton#interruptor:checked { background: #14532d; border-color: #22c55e; color: #dcfce7; }
 QPushButton#chico { padding: 2px 8px; font-size: 9pt; color: #9fc2ff; }
 QFrame#panelSiguiente {
     background: rgba(15, 23, 41, 225); border: 1px solid #3d7bfd; border-radius: 10px;

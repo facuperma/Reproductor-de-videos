@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1729">
+<meta name="mobile-web-app-capable" content="yes">
+<title>TVon ON</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icono-192.png">
+<link rel="apple-touch-icon" href="icono-192.png">
+<link rel="stylesheet" href="estilo.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<!-- Sin conexión con TVon todavía: emparejar con el QR -->
+<section id="emparejar" class="emparejar" hidden>
+  <img src="icono-192.png" alt="" class="emparejar-logo">
+  <h1>TVon <span class="on">ON</span></h1>
+  <p id="emparejar-texto">Manejá TVon desde el celular.</p>
+  <ol>
+    <li>En la PC, abrí TVon y tocá <b>📱 ON</b>.</li>
+    <li>Encendelo y escaneá el código QR con la cámara de este celular.</li>
+  </ol>
+  <p class="pista">El celular y la PC tienen que estar en la misma red wifi.</p>
+</section>
+
+<div id="app" hidden>
+  <header class="cabecera">
+    <img src="icono-192.png" alt="" class="cabecera-logo">
+    <span class="cabecera-titulo">TVon <span class="on">ON</span></span>
+    <span id="conexion" class="conexion" title="Conexión con la PC"></span>
+  </header>
+
+  <!-- Avisos que valen en cualquier pestaña -->
+  <div id="aviso-apagado" class="banner banner-peligro" hidden>
+    <div><b>⏻ La PC se apaga en <span id="apagado-segundos">60</span> s</b></div>
+    <div class="fila">
+      <button data-accion="cancelar_apagado" class="boton">Cancelar</button>
+      <button data-accion="apagar_ahora" class="boton boton-peligro">Apagar ahora</button>
+    </div>
+  </div>
+  <div id="aviso-siguiente" class="banner" hidden>
+    <div><b id="siguiente-texto"></b><div id="siguiente-nombre" class="pista"></div></div>
+    <div class="fila">
+      <button data-accion="siguiente_ahora" class="boton boton-primario">▶ Ahora</button>
+      <button data-accion="cancelar_siguiente" class="boton">Cancelar</button>
+    </div>
+  </div>
+
+  <main>
+    <!-- Reproductor -->
+    <section id="pestana-reproductor" class="pestana">
+      <div class="tarjeta reproduciendo">
+        <div class="cuadro">
+          <img id="cuadro" alt="">
+          <div id="cuadro-vacio" class="cuadro-vacio">Nada en reproducción</div>
+        </div>
+        <div id="titulo-actual" class="titulo-actual">—</div>
+        <div id="estado-actual" class="pista"></div>
+      </div>
+
+      <div id="controles" class="tarjeta">
+        <input id="barra" type="range" min="0" max="1000" value="0" class="barra" aria-label="Posición">
+        <div class="tiempos"><span id="tiempo-pos">0:00</span><span id="tiempo-dur">0:00</span></div>
+        <div class="botonera">
+          <button data-accion="lista" data-paso="-1" class="redondo" title="Anterior de la lista">⏮</button>
+          <button data-accion="adelantar" data-ms="-15000" class="redondo" title="Retroceder 15 s">↺15</button>
+          <button id="btn-play" data-accion="play_pausa" class="redondo grande" title="Reproducir / pausar">▶</button>
+          <button data-accion="adelantar" data-ms="15000" class="redondo" title="Adelantar 15 s">15↻</button>
+          <button data-accion="siguiente" class="redondo" title="Siguiente de la cola o capítulo">⏭</button>
+        </div>
+        <div class="botonera chica">
+          <button data-accion="adelantar" data-ms="-5000" class="boton">−5 s</button>
+          <button data-accion="detener" class="boton">⏹ Detener</button>
+          <button data-accion="adelantar" data-ms="5000" class="boton">+5 s</button>
+          <button data-accion="lista" data-paso="1" class="boton" title="Siguiente de la lista">Lista ▶</button>
+        </div>
+        <div class="volumen">
+          <button id="btn-silencio" data-accion="silencio" class="redondo chico" title="Silenciar">🔊</button>
+          <input id="volumen" type="range" min="0" max="100" value="70" aria-label="Volumen">
+          <span id="volumen-valor" class="pista">70</span>
+        </div>
+        <div class="fila fila-repartida">
+          <button data-accion="pantalla_completa" class="boton">⛶ Pantalla completa</button>
+          <label class="interruptor"><input id="chk-apagar" type="checkbox"><span></span>⏻ Apagar al terminar</label>
+        </div>
+      </div>
+
+      <details id="tarjeta-subs" class="tarjeta desplegable">
+        <summary>CC Subtítulos <span id="subs-resumen" class="pista"></span></summary>
+        <div id="subs-opciones" class="opciones"></div>
+        <div class="subs-retraso">
+          <span>Retraso</span>
+          <button data-accion="retraso" data-ms="-50" class="boton">−50 ms</button>
+          <b id="subs-retraso">0 ms</b>
+          <button data-accion="retraso" data-ms="50" class="boton">+50 ms</button>
+          <button data-accion="retraso" data-valor="0" class="boton">0</button>
+        </div>
+        <div id="subs-tamanos" class="chips"></div>
+        <button id="btn-buscar-subs" data-accion="buscar_subtitulos" class="boton ancho">🌐 Buscar en internet (OpenSubtitles)</button>
+      </details>
+
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">☰ Cola <span id="cola-cantidad" class="pista"></span>
+          <button data-accion="cola_vaciar" class="boton chico derecha">Vaciar</button></div>
+        <ul id="cola" class="lista"></ul>
+        <p id="cola-vacia" class="pista">Vacía. Agregá videos desde la Biblioteca.</p>
+      </div>
+    </section>
+
+    <!-- Biblioteca -->
+    <section id="pestana-biblioteca" class="pestana" hidden>
+      <div class="buscar">
+        <input id="buscar" type="search" placeholder="Buscar por nombre…" autocomplete="off">
+        <button id="btn-seleccionar" class="boton">Elegir</button>
+      </div>
+      <div id="filtros" class="chips filtros"></div>
+      <div id="cantidad-archivos" class="pista"></div>
+      <ul id="archivos" class="lista archivos"></ul>
+      <div id="barra-seleccion" class="barra-seleccion" hidden>
+        <span id="seleccion-cantidad"></span>
+        <button data-seleccion="cola" class="boton">☰ Cola</button>
+        <button data-seleccion="favoritos" class="boton">★</button>
+        <button data-seleccion="categorias" class="boton">🏷</button>
+        <button data-seleccion="mas" class="boton">⋯</button>
+      </div>
+    </section>
+
+    <!-- Dominio público -->
+    <section id="pestana-peliculas" class="pestana" hidden>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">🎞 Películas de dominio público</div>
+        <p class="pista">De la colección del Internet Archive. Se bajan en la PC y entran solas a la biblioteca.</p>
+        <form id="form-peliculas" class="buscar">
+          <input id="buscar-peliculas" type="search" placeholder="Título (vacío = las más populares)" autocomplete="off">
+          <button class="boton boton-primario">Buscar</button>
+        </form>
+        <select id="orden-peliculas" aria-label="Ordenar por"></select>
+      </div>
+      <div id="peliculas-total" class="pista"></div>
+      <ul id="peliculas" class="lista"></ul>
+      <button id="btn-mas-peliculas" class="boton ancho" hidden>Cargar más</button>
+
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">⬇ Descargas <span id="descargas-resumen" class="pista"></span></div>
+        <ul id="descargas" class="lista"></ul>
+        <p id="descargas-vacia" class="pista">No hay descargas.</p>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">Descarga automática</div>
+        <label class="interruptor"><input id="auto-activa" type="checkbox"><span></span>Bajar solas las más populares</label>
+        <div class="fila">
+          <label class="campo">hasta <input id="auto-peliculas" type="number" min="1" inputmode="numeric"> películas</label>
+          <label class="campo">o <input id="auto-gb" type="number" min="1" inputmode="numeric"> GB</label>
+        </div>
+        <p class="pista">Siempre se dejan al menos 5 GB libres en el disco de la PC.</p>
+      </div>
+    </section>
+
+    <!-- Mouse y teclado (touchpad) -->
+    <section id="pestana-mouse" class="pestana" hidden>
+      <p id="mouse-error" class="error" hidden></p>
+      <div id="touchpad" class="touchpad" aria-label="Touchpad">
+        <span class="touchpad-ayuda">Deslizá: mover · tocá: clic · 2 dedos: rueda · tocá con 2 dedos: clic derecho</span>
+      </div>
+      <div class="botones-mouse">
+        <button data-boton="izquierdo">Izquierdo</button>
+        <button id="btn-mantener" title="Deja apretado el botón izquierdo para arrastrar">🔒</button>
+        <button data-boton="derecho">Derecho</button>
+      </div>
+      <label class="campo fila">Velocidad
+        <input id="velocidad" type="range" min="0.5" max="4" step="0.25" value="1.75">
+      </label>
+      <div id="hueco-teclado-mouse">
+        <div id="teclado" class="tarjeta">
+          <div class="fila fila-repartida">
+            <div class="tarjeta-titulo">⌨ Teclado</div>
+            <div class="segmentos" role="group" aria-label="Modo del teclado">
+              <button data-teclado="vivo" class="activo">En vivo</button>
+              <button data-teclado="enviar">Escribir y enviar</button>
+            </div>
+          </div>
+          <p class="pista">Tocá el recuadro y escribí: cada letra va directo a la PC.</p>
+          <input id="vivo" class="vivo" type="text" aria-label="Teclado en vivo" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="enter">
+          <form id="form-texto" class="buscar" hidden>
+            <input id="texto" type="text" placeholder="Escribir en la PC…" autocomplete="off" autocapitalize="off">
+            <button class="boton boton-primario">Enviar</button>
+          </form>
+          <div class="teclas">
+            <button data-teclas="enter">Enter</button>
+            <button data-teclas="retroceso">⌫</button>
+            <button data-teclas="esc">Esc</button>
+            <button data-teclas="tab">Tab</button>
+            <button data-teclas="espacio">Espacio</button>
+            <button data-teclas="izquierda">←</button>
+            <button data-teclas="arriba">↑</button>
+            <button data-teclas="abajo">↓</button>
+            <button data-teclas="derecha">→</button>
+            <button data-rueda="3">Rueda ▲</button>
+            <button data-rueda="-3">Rueda ▼</button>
+            <button data-teclas="alt+tab">Alt+Tab</button>
+            <button data-teclas="win">⊞ Win</button>
+            <button data-teclas="ctrl+c">Ctrl+C</button>
+            <button data-teclas="ctrl+v">Ctrl+V</button>
+            <button data-teclas="alt+f4" data-confirmar="¿Cerrar la ventana activa de la PC (Alt+F4)?">Alt+F4</button>
+            <button data-teclas="volumen_menos">🔉</button>
+            <button data-teclas="volumen_mas">🔊</button>
+            <button data-teclas="silencio">🔇</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pantalla compartida -->
+    <section id="pestana-pantalla" class="pestana" hidden>
+      <div id="pantalla-apagada" class="tarjeta">
+        <div class="tarjeta-titulo">🖥 Pantalla de la PC</div>
+        <p class="pista">Mirá la pantalla de la PC y manejala con el dedo. En la PC aparece un aviso mientras la estás viendo.</p>
+        <div class="fila">
+          <label class="campo">Calidad
+            <select id="calidad">
+              <option value="960,45,10">Rápida</option>
+              <option value="1280,60,8" selected>Normal</option>
+              <option value="1920,75,5">Nítida</option>
+            </select>
+          </label>
+          <label id="campo-monitor" class="campo" hidden>Monitor <select id="monitor"></select></label>
+        </div>
+        <button id="btn-compartir" class="boton boton-primario ancho">Ver la pantalla</button>
+        <p id="pantalla-error" class="error" hidden></p>
+      </div>
+      <div id="pantalla-encendida" hidden>
+        <div class="fila fila-repartida herramientas">
+          <div class="segmentos" role="group" aria-label="Modo del dedo">
+            <button data-modo="tocar" class="activo">👆 Tocar</button>
+            <button data-modo="arrastrar">✋ Arrastrar</button>
+          </div>
+          <button id="btn-zoom" class="boton chico">🔍 1×</button>
+          <button id="btn-completa" class="boton chico">⛶</button>
+          <button id="btn-dejar" class="boton chico boton-peligro">✕</button>
+        </div>
+        <div id="lienzo" class="lienzo">
+          <img id="pantalla" alt="Pantalla de la PC">
+        </div>
+        <p class="pista centro" id="ayuda-modo">Tocá para hacer clic · dos toques: doble clic · mantené: clic derecho · deslizá: rueda</p>
+        <div id="hueco-teclado-pantalla"></div>
+      </div>
+    </section>
+
+    <!-- Más -->
+    <section id="pestana-mas" class="pestana" hidden>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">Abrir en el navegador de la PC</div>
+        <div class="fila">
+          <button data-accion="abrir_web" data-sitio="peliculas" class="boton">🌐 Películas</button>
+          <button data-accion="abrir_web" data-sitio="subtitulos" class="boton">🌐 Subtítulos</button>
+        </div>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">Biblioteca automática</div>
+        <label class="interruptor"><input id="chk-mover" type="checkbox"><span></span>Mover a Videos lo que termine de bajarse en Descargas</label>
+        <p class="pista">Las carpetas que se revisan se cambian en ⚙ Configuración, en la PC (o desde la pestaña Pantalla).</p>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">Tenerlo como app</div>
+        <p class="pista">En Chrome: menú ⋮ → <b>Agregar a la pantalla principal</b>. Queda con el ícono de TVon.</p>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">Conexión</div>
+        <p class="pista">Conectado a TVon <span id="version"></span> en <span id="host"></span>.</p>
+        <button id="btn-salir" class="boton boton-peligro ancho">Desconectar este celular</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="pestanas">
+    <button data-pestana="reproductor" class="activa"><span>▶</span>Reproductor</button>
+    <button data-pestana="biblioteca"><span>📚</span>Biblioteca</button>
+    <button data-pestana="peliculas"><span>🎞</span>Películas</button>
+    <button data-pestana="mouse"><span>🖱</span>Mouse</button>
+    <button data-pestana="pantalla"><span>🖥</span>Pantalla</button>
+    <button data-pestana="mas"><span>⋯</span>Más</button>
+  </nav>
+</div>
+
+<!-- Hoja de acciones (abajo) -->
+<div id="velo" class="velo" hidden></div>
+<div id="hoja" class="hoja" hidden role="dialog" aria-modal="true">
+  <div class="hoja-asa"></div>
+  <div id="hoja-titulo" class="hoja-titulo"></div>
+  <div id="hoja-cuerpo"></div>
+</div>
+
+<div id="tostada" class="tostada" hidden></div>
+</body>
+</html>

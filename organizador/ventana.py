@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
 from .db import CATEGORIA_DOMINIO_PUBLICO, CATEGORIA_FAVORITOS, EXT_IMAGEN, EXT_VIDEO, Biblioteca
 from .descargas import GestorDescargas
 from .dialogo_config import DialogoConfig
+from .dialogo_on import DialogoOn
 from .dominio_publico import VentanaDominioPublico, eliminar_video
+from .remoto import Remoto
 from .subtitulos import EXT_SUBTITULOS
 from .titulos import titulo_de
 from .vigilancia import Vigilante
@@ -45,6 +47,9 @@ class Ventana(QMainWindow):
         self._modo_seleccion = VISTA_PREVIA
         self.ventanas_video: list[VentanaVideo] = []
         self.ventana_dominio: VentanaDominioPublico | None = None
+        self.dialogo_on: DialogoOn | None = None
+        # (aviso, [segundos que faltan], botón «Apagar ahora») mientras corre la cuenta para apagar
+        self.apagado_pendiente = None
         self.gestor = GestorDescargas(biblioteca.ruta_db)
         self.gestor.pelicula_lista.connect(self._pelicula_descargada)
         self.vigilante = Vigilante(biblioteca.ruta_db)
@@ -87,7 +92,7 @@ class Ventana(QMainWindow):
         self.lista.header().setSectionResizeMode(0, QHeaderView.Interactive)
         self.lista.header().resizeSection(0, 260)
         self.lista.currentItemChanged.connect(self._archivo_cambiado)
-        self.lista.itemDoubleClicked.connect(lambda item: self._abrir_en_ventana([item.data(0, ROL)]))
+        self.lista.itemDoubleClicked.connect(lambda item: self.abrir_en_ventana([item.data(0, ROL)]))
         self.lista.setContextMenuPolicy(Qt.CustomContextMenu)
         self.lista.customContextMenuRequested.connect(self._menu_archivos)
         self.lista.itemSelectionChanged.connect(self._actualizar_boton_titulo)
@@ -114,10 +119,10 @@ class Ventana(QMainWindow):
 
         # --- Columna derecha: visor y detalles ------------------------------
         self.visor = Visor()
-        self.visor.pedir_pantalla_completa.connect(self._alternar_pantalla_completa)
+        self.visor.pedir_pantalla_completa.connect(self.alternar_pantalla_completa)
         self.visor.subtitulos_cambiados.connect(self.bib.guardar_subtitulos)
         self.visor.buscar_siguiente = self.bib.siguiente_en_categoria
-        self.visor.reproducir_siguiente.connect(self._reproducir_capitulo)
+        self.visor.reproducir_siguiente.connect(self.reproducir)
         self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, self.bib, self))
         self.visor.pedir_apagado.connect(self._apagar_computadora)
         self.chk_apagar = QCheckBox("⏻ Apagar al terminar",
@@ -130,7 +135,7 @@ class Ventana(QMainWindow):
         self.txt_ruta = QLineEdit(readOnly=True, placeholderText="Ubicación del archivo")
         btn_abrir = QPushButton("Abrir ubicación")
         btn_copiar = QPushButton("Copiar ruta")
-        btn_abrir.clicked.connect(lambda: self._abrir_ubicacion())
+        btn_abrir.clicked.connect(lambda: self.abrir_ubicacion())
         btn_copiar.clicked.connect(lambda: QApplication.clipboard().setText(self.txt_ruta.text()))
         fila_ruta = QHBoxLayout()
         fila_ruta.addWidget(self.txt_ruta, 1)
@@ -156,9 +161,9 @@ class Ventana(QMainWindow):
         btn_sig = QPushButton("Siguiente ▶")
         btn_ventana = QPushButton("⧉ Abrir en ventana", toolTip="Abrir en una ventana aparte (o doble clic en la lista)")
         btn_quitar = QPushButton("Quitar de la biblioteca")
-        btn_ant.clicked.connect(lambda: self._mover(-1))
-        btn_sig.clicked.connect(lambda: self._mover(1))
-        btn_ventana.clicked.connect(lambda: self._abrir_en_ventana([self._archivo_actual()]))
+        btn_ant.clicked.connect(lambda: self.mover(-1))
+        btn_sig.clicked.connect(lambda: self.mover(1))
+        btn_ventana.clicked.connect(lambda: self.abrir_en_ventana([self.archivo_actual()]))
         btn_quitar.clicked.connect(self._quitar_archivo)
         fila_nav = QHBoxLayout()
         fila_nav.addWidget(btn_ant)
@@ -190,7 +195,8 @@ class Ventana(QMainWindow):
 
         self._crear_menu()
         self._atajos()
-        self._cargar_filtros()
+        self._crear_on()
+        self.cargar_filtros()
         self._mostrar_detalles(None)
         self.gestor.iniciar()
         self.vigilante.iniciar()
@@ -210,6 +216,8 @@ class Ventana(QMainWindow):
         barra.addSeparator()
         barra.addAction("🎞 Dominio público", self._abrir_dominio_publico)
         barra.addAction("⚙ Configuración", self._abrir_configuracion)
+        self.acc_on = barra.addAction("📱 ON", self._abrir_on)
+        self.acc_on.setToolTip("Manejar TVon desde el celular")
         barra.addSeparator()
         # Accesos a páginas externas: se abren en el navegador
         for texto, url in (("🌐 Películas", "https://ext.to/"), ("🌐 Subtítulos", "https://subdivx.com/")):
@@ -231,14 +239,14 @@ class Ventana(QMainWindow):
         archivo.addAction("Agregar archivos…", QKeySequence("Ctrl+O"), self._agregar_archivos)
         archivo.addAction("Agregar carpeta…", QKeySequence("Ctrl+Shift+O"), self._agregar_carpeta)
         archivo.addSeparator()
-        archivo.addAction("Abrir ubicación del archivo", self._abrir_ubicacion)
+        archivo.addAction("Abrir ubicación del archivo", self.abrir_ubicacion)
         archivo.addAction("Películas de dominio público…", self._abrir_dominio_publico)
         archivo.addSeparator()
         archivo.addAction("Salir", QKeySequence("Ctrl+Q"), self.close)
 
         vista = barra.addMenu("&Vista")
         # El atajo F ya lo maneja el reproductor: acá solo se muestra
-        vista.addAction("Pantalla completa\tF", self._alternar_pantalla_completa)
+        vista.addAction("Pantalla completa\tF", self.alternar_pantalla_completa)
         vista.addAction("Buscar\tCtrl+F", self._enfocar_buscador)
         vista.addSeparator()
         self._paneles = {}
@@ -254,6 +262,7 @@ class Ventana(QMainWindow):
 
         config = barra.addMenu("&Configuración")
         config.addAction("Preferencias…", self._abrir_configuracion)
+        config.addAction("📱 ON: manejar desde el celular…", self._abrir_on)
         apagar = config.addAction("Apagar la PC al terminar el video")
         apagar.setCheckable(True)
         apagar.toggled.connect(self.chk_apagar.setChecked)
@@ -295,15 +304,15 @@ class Ventana(QMainWindow):
         self.statusBar().showMessage("Se abrió el formulario de reporte en el navegador", 8000)
 
     def _atajos(self):
-        atajos_reproductor(self, self.visor, self._alternar_pantalla_completa)
+        atajos_reproductor(self, self.visor, self.alternar_pantalla_completa)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._enfocar_buscador)
 
     def _enfocar_buscador(self):
         if self.isFullScreen():
-            self._alternar_pantalla_completa()
+            self.alternar_pantalla_completa()
         self.buscador.setFocus()
 
-    def _alternar_pantalla_completa(self):
+    def alternar_pantalla_completa(self):
         """Pantalla completa propia: se oculta todo menos el visor."""
         completa = not self.isFullScreen()
         for w in (self.izq, self.centro, self.detalles, self.barra_herramientas, self.statusBar(),
@@ -324,7 +333,7 @@ class Ventana(QMainWindow):
 
     # --- Filtros y categorías -----------------------------------------------
 
-    def _cargar_filtros(self):
+    def cargar_filtros(self):
         anterior = self.filtro
         self.lista_filtros.blockSignals(True)
         self.lista_filtros.clear()
@@ -388,7 +397,7 @@ class Ventana(QMainWindow):
                 self.bib.crear_categoria(nombre)
             except Exception:
                 QMessageBox.warning(self, "Categoría", f"Ya existe una categoría llamada «{nombre}».")
-            self._cargar_filtros()
+            self.cargar_filtros()
 
     def _renombrar_categoria(self):
         actual = self._categoria_actual()
@@ -404,7 +413,7 @@ class Ventana(QMainWindow):
                 self.bib.renombrar_categoria(cid, nuevo)
             except Exception:
                 QMessageBox.warning(self, "Categoría", f"Ya existe una categoría llamada «{nuevo}».")
-            self._cargar_filtros()
+            self.cargar_filtros()
 
     def _borrar_categoria(self):
         actual = self._categoria_actual()
@@ -421,13 +430,13 @@ class Ventana(QMainWindow):
         ) == QMessageBox.Yes:
             self.bib.borrar_categoria(cid)
             self.filtro = ("todos", None)
-            self._cargar_filtros()
+            self.cargar_filtros()
 
     # --- Archivos -------------------------------------------------------------
 
     def _cargar_archivos(self):
         """Recarga la lista según el filtro, conservando la selección que siga visible."""
-        actual = self._archivo_actual()
+        actual = self.archivo_actual()
         id_actual = actual[0] if actual else None
         ids_seleccionados = set(self._ids_seleccionados())
         filtro, cid = self.filtro
@@ -486,19 +495,19 @@ class Ventana(QMainWindow):
 
         menu = QMenu(self)
         seleccion = [i.data(0, ROL) for i in self.lista.selectedItems()]
-        menu.addAction(f"⧉ Abrir en ventana nueva ({n})", lambda: self._abrir_en_ventana(seleccion))
+        menu.addAction(f"⧉ Abrir en ventana nueva ({n})", lambda: self.abrir_en_ventana(seleccion))
         videos = [ruta for _aid, ruta, tipo in seleccion if tipo == "video"]
-        menu.addAction(f"☰ Agregar a la cola ({len(videos)})", lambda: self._encolar(videos)).setEnabled(bool(videos))
+        menu.addAction(f"☰ Agregar a la cola ({len(videos)})", lambda: self.encolar(videos)).setEnabled(bool(videos))
         menu.addSeparator()
         if all(self.bib.favoritos in self.bib.categorias_de(a) for a in ids):
-            menu.addAction(f"☆ Quitar de {CATEGORIA_FAVORITOS} ({n})", lambda: self._asignar_seleccion(
+            menu.addAction(f"☆ Quitar de {CATEGORIA_FAVORITOS} ({n})", lambda: self.asignar_seleccion(
                 ids, self.bib.favoritos, CATEGORIA_FAVORITOS, False))
         else:
-            menu.addAction(f"★ Agregar a {CATEGORIA_FAVORITOS} ({n})", lambda: self._asignar_seleccion(
+            menu.addAction(f"★ Agregar a {CATEGORIA_FAVORITOS} ({n})", lambda: self.asignar_seleccion(
                 ids, self.bib.favoritos, CATEGORIA_FAVORITOS, True))
         asignar = menu.addMenu(f"Asignar a categoría ({n})")
         for cid, nombre, _ in categorias:
-            asignar.addAction(nombre, lambda c=cid, nom=nombre: self._asignar_seleccion(ids, c, nom, True))
+            asignar.addAction(nombre, lambda c=cid, nom=nombre: self.asignar_seleccion(ids, c, nom, True))
         if categorias:
             asignar.addSeparator()
         asignar.addAction("Nueva categoría…", lambda: self._asignar_a_nueva(ids))
@@ -508,18 +517,18 @@ class Ventana(QMainWindow):
         quitar = menu.addMenu(f"Quitar de categoría ({n})")
         for cid, nombre, _ in categorias:
             if cid in presentes:
-                quitar.addAction(nombre, lambda c=cid, nom=nombre: self._asignar_seleccion(ids, c, nom, False))
+                quitar.addAction(nombre, lambda c=cid, nom=nombre: self.asignar_seleccion(ids, c, nom, False))
         quitar.setEnabled(bool(presentes))
 
         menu.addSeparator()
         if n == 1:
             menu.addAction(self.btn_categoria_titulo.text(), self._categoria_desde_titulo)
-            menu.addAction("Abrir ubicación", lambda: self._abrir_ubicacion(seleccion[0][1]))
+            menu.addAction("Abrir ubicación", lambda: self.abrir_ubicacion(seleccion[0][1]))
         menu.addAction(f"Quitar de la biblioteca ({n})", self._quitar_archivo)
         menu.addAction(f"🗑 Eliminar del disco ({n})…", self._eliminar_del_disco)
         menu.exec(self.lista.viewport().mapToGlobal(pos))
 
-    def _asignar_seleccion(self, ids: list[int], cid: int, nombre: str, activa: bool):
+    def asignar_seleccion(self, ids: list[int], cid: int, nombre: str, activa: bool):
         self.bib.asignar_varios(ids, cid, activa)
         self._actualizar_conteos()
         self._cargar_archivos()
@@ -536,10 +545,10 @@ class Ventana(QMainWindow):
             return
         cid = next(c for c, n, _ in self.bib.listar_categorias() if n == nombre)
         self.bib.asignar_varios(ids, cid, True)
-        self._cargar_filtros()
+        self.cargar_filtros()
         self.statusBar().showMessage(f"{len(ids)} archivo(s) asignado(s) a «{nombre}»", 5000)
 
-    def _archivo_actual(self) -> tuple[int, str, str] | None:
+    def archivo_actual(self) -> tuple[int, str, str] | None:
         item = self.lista.currentItem()
         return item.data(0, ROL) if item else None
 
@@ -571,7 +580,7 @@ class Ventana(QMainWindow):
         while self.capa_chips.count():
             if w := self.capa_chips.takeAt(0).widget():
                 w.deleteLater()
-        actual = self._archivo_actual()
+        actual = self.archivo_actual()
         if not actual:
             return
         asignadas = self.bib.categorias_de(actual[0])
@@ -587,7 +596,7 @@ class Ventana(QMainWindow):
     def _armar_menu_categorias(self):
         m = self.menu_editar_cat
         m.clear()
-        actual = self._archivo_actual()
+        actual = self.archivo_actual()
         if not actual:
             return
         asignadas = self.bib.categorias_de(actual[0])
@@ -600,7 +609,7 @@ class Ventana(QMainWindow):
         m.addAction("Nueva categoría…", lambda: self._asignar_a_nueva([actual[0]]))
 
     def _alternar_categoria(self, cid: int, activa: bool):
-        actual = self._archivo_actual()
+        actual = self.archivo_actual()
         if not actual:
             return
         self.bib.asignar(actual[0], cid, activa)
@@ -620,7 +629,7 @@ class Ventana(QMainWindow):
                 nombre, n = conteos[dato[1]]
                 item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n})")
 
-    def _mover(self, paso: int):
+    def mover(self, paso: int):
         total = self.lista.topLevelItemCount()
         if total == 0:
             return
@@ -634,8 +643,26 @@ class Ventana(QMainWindow):
             f"¿Quitar {len(ids)} archivo(s) de la biblioteca?\nLos archivos NO se borran del disco.",
         ) == QMessageBox.Yes:
             self.visor.mostrar(None, None)
-            self.bib.quitar_archivos(ids)
-            self._cargar_filtros()
+            self.quitar_de_biblioteca(ids)
+
+    def quitar_de_biblioteca(self, ids: list[int]):
+        self.bib.quitar_archivos(ids)
+        self.cargar_filtros()
+
+    def eliminar_archivos(self, seleccion: list[tuple[int, str, str]]) -> tuple[int, list[str]]:
+        """Manda a la Papelera los archivos (id, ruta, tipo) con sus subtítulos y los quita de la biblioteca.
+        Devuelve (cuántos se borraron, nombres de los que no se pudieron mover)."""
+        fallidos, borrados = [], []
+        for aid, ruta, _tipo in seleccion:
+            self._soltar_archivo(ruta)
+            fallidos += eliminar_video(ruta)
+            if not Path(ruta).exists():
+                borrados.append(aid)
+                self.bib.marcar_descarga_eliminada(ruta)
+        self.bib.quitar_archivos(borrados)
+        self.cargar_filtros()
+        self.statusBar().showMessage(f"{len(borrados)} archivo(s) enviado(s) a la Papelera", 8000)
+        return len(borrados), fallidos
 
     def _eliminar_del_disco(self):
         seleccion = [i.data(0, ROL) for i in self.lista.selectedItems()]
@@ -651,22 +678,13 @@ class Ventana(QMainWindow):
             "Se pueden recuperar desde la Papelera.",
         ) != QMessageBox.Yes:
             return
-        fallidos, borrados = [], []
-        for aid, ruta, _tipo in seleccion:
-            self._soltar_archivo(ruta)
-            fallidos += eliminar_video(ruta)
-            if not Path(ruta).exists():
-                borrados.append(aid)
-                self.bib.marcar_descarga_eliminada(ruta)
-        self.bib.quitar_archivos(borrados)
-        self._cargar_filtros()
-        self.statusBar().showMessage(f"{len(borrados)} archivo(s) enviado(s) a la Papelera", 8000)
+        _borrados, fallidos = self.eliminar_archivos(seleccion)
         if fallidos:
             QMessageBox.warning(self, "Eliminar del disco",
                                 "No se pudieron mover a la Papelera (¿están abiertos en otro programa?):\n\n"
                                 + "\n".join(fallidos))
 
-    def _encolar(self, rutas: list[str]):
+    def encolar(self, rutas: list[str]):
         agregados = self.visor.encolar(rutas)
         self.statusBar().showMessage(
             f"{agregados} video(s) agregado(s) a la cola · {len(self.visor.cola)} en espera", 6000)
@@ -709,7 +727,12 @@ class Ventana(QMainWindow):
         reloj.timeout.connect(tic)
         tic()
         reloj.start()
-        aviso.exec()
+        # Para que el celular (modo ON) pueda ver la cuenta y cancelarla
+        self.apagado_pendiente = (aviso, segundos, btn_ahora)
+        try:
+            aviso.exec()
+        finally:
+            self.apagado_pendiente = None
         reloj.stop()
         if apagando[0]:
             return
@@ -733,20 +756,20 @@ class Ventana(QMainWindow):
         if error:
             QMessageBox.warning(self, "Apagar la computadora", f"No se pudo apagar la computadora:\n\n{error}")
 
-    def _reproducir_capitulo(self, ruta: str):
-        """Pasa al siguiente capítulo seleccionándolo en la lista, si está visible."""
+    def reproducir(self, ruta: str, tipo: str = "video"):
+        """Muestra el archivo seleccionándolo en la lista, si está visible (p. ej. el siguiente capítulo)."""
         for i in range(self.lista.topLevelItemCount()):
             item = self.lista.topLevelItem(i)
-            if item.data(0, ROL)[1] == ruta:
+            if item.data(0, ROL)[1] == ruta and item is not self.lista.currentItem():
                 self._seleccionar(item, REPRODUCIR)
                 self.lista.scrollToItem(item)
                 return
         # Con un filtro o búsqueda que lo oculta, se reproduce igual
-        self.visor.mostrar(ruta, "video", self.bib.subtitulos_de(ruta))
+        self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta))
 
     # --- Ventanas flotantes ---------------------------------------------------
 
-    def _abrir_en_ventana(self, archivos: list):
+    def abrir_en_ventana(self, archivos: list):
         archivos = [a for a in archivos if a]
         if len(archivos) > 4 and QMessageBox.question(
             self, "Abrir en ventanas", f"¿Abrir {len(archivos)} ventanas a la vez?"
@@ -772,7 +795,8 @@ class Ventana(QMainWindow):
         # Una descarga a medias queda en cola y se retoma al volver a abrir TVon
         self.gestor.detener()
         self.vigilante.detener()
-        for ventana in [*self.ventanas_video, self.ventana_dominio]:
+        self.remoto.detener()
+        for ventana in [*self.ventanas_video, self.ventana_dominio, self.dialogo_on]:
             if ventana:
                 ventana.close()
         super().closeEvent(e)
@@ -783,10 +807,50 @@ class Ventana(QMainWindow):
         if self.ventana_dominio is None:
             self.ventana_dominio = VentanaDominioPublico(self.bib, self.gestor)
             self.ventana_dominio.pelicula_por_eliminar.connect(self._soltar_archivo)
-            self.ventana_dominio.biblioteca_cambiada.connect(self._cargar_filtros)
+            self.ventana_dominio.biblioteca_cambiada.connect(self.cargar_filtros)
         self.ventana_dominio.show()
         self.ventana_dominio.raise_()
         self.ventana_dominio.activateWindow()
+
+    # --- Modo ON (el celular) -----------------------------------------------------
+
+    def _crear_on(self):
+        self.remoto = Remoto(self)
+        self.remoto.estado_cambiado.connect(self._mostrar_on)
+        self.remoto.transmisiones.connect(self._mostrar_transmision)
+        self.remoto.celular_conectado.connect(
+            lambda nombre: self.statusBar().showMessage(f"📱 Se conectó un celular: {nombre}", 8000))
+        # Aviso fijo mientras el celular ve la pantalla, con un botón para cortar
+        self.aviso_pantalla = QWidget()
+        capa = QHBoxLayout(self.aviso_pantalla)
+        capa.setContentsMargins(0, 0, 0, 0)
+        capa.addWidget(QLabel("🔴 El celular está viendo la pantalla", objectName="enVivo"))
+        btn_cortar = QPushButton("Dejar de compartir", objectName="chico")
+        btn_cortar.clicked.connect(self.remoto.dejar_de_compartir)
+        capa.addWidget(btn_cortar)
+        self.aviso_pantalla.hide()
+        self.statusBar().addPermanentWidget(self.aviso_pantalla)
+        if self.remoto.al_iniciar and not self.remoto.iniciar():
+            self.statusBar().showMessage(f"No se pudo encender ON: {self.remoto.error}", 10000)
+        self._mostrar_on()
+
+    def _abrir_on(self):
+        if self.dialogo_on is None:
+            self.dialogo_on = DialogoOn(self.remoto, self)
+        self.dialogo_on.show()
+        self.dialogo_on.raise_()
+        self.dialogo_on.activateWindow()
+
+    def _mostrar_on(self):
+        boton = self.barra_herramientas.widgetForAction(self.acc_on)
+        boton.setProperty("encendido", self.remoto.activo)
+        boton.style().polish(boton)
+        self.acc_on.setText("📱 ON ●" if self.remoto.activo else "📱 ON")
+        self.acc_on.setToolTip(f"ON encendido: {self.remoto.url}" if self.remoto.activo
+                               else "Manejar TVon desde el celular")
+
+    def _mostrar_transmision(self, cantidad: int):
+        self.aviso_pantalla.setVisible(cantidad > 0)
 
     # --- Biblioteca automática ----------------------------------------------------
 
@@ -795,11 +859,11 @@ class Ventana(QMainWindow):
             self.vigilante.despertar()
 
     def _videos_encontrados(self, cantidad: int):
-        self._cargar_filtros()
+        self.cargar_filtros()
         self.statusBar().showMessage(f"{cantidad} video(s) nuevo(s) en tus carpetas", 8000)
 
     def _video_movido(self, ruta: str):
-        self._cargar_filtros()
+        self.cargar_filtros()
         self.statusBar().showMessage(f"Movido de Descargas a {Path(ruta).parent.name}: {Path(ruta).name}", 8000)
 
     # --- Categoría desde el título -------------------------------------------------
@@ -819,18 +883,23 @@ class Ventana(QMainWindow):
 
     def _categoria_desde_titulo(self):
         seleccion = self.lista.selectedItems()
-        if len(seleccion) != 1:
-            return
-        titulo = titulo_de(seleccion[0].text(0))
+        if len(seleccion) == 1:
+            self.categoria_desde_titulo(seleccion[0].text(0))
+
+    def categoria_desde_titulo(self, nombre_archivo: str) -> str:
+        """Crea (o completa) la categoría con el título de la película o serie; devuelve el aviso."""
+        titulo = titulo_de(nombre_archivo)
         existia = any(nombre.lower() == titulo.lower() for _, nombre, _ in self.bib.listar_categorias())
         cid = self.bib.categoria_id(titulo)
         # También los demás capítulos de la misma serie (mismo título)
         ids = [aid for aid, _ruta, nombre, _tipo in self.bib.listar_archivos()
                if titulo_de(nombre).lower() == titulo.lower()]
         self.bib.asignar_varios(ids, cid, True)
-        self._cargar_filtros()
+        self.cargar_filtros()
         accion = "Se sumaron a la categoría" if existia else "Categoría creada"
-        self.statusBar().showMessage(f"{accion} «{titulo}»: {len(ids)} archivo(s)", 8000)
+        aviso = f"{accion} «{titulo}»: {len(ids)} archivo(s)"
+        self.statusBar().showMessage(aviso, 8000)
+        return aviso
 
     def _soltar_archivo(self, ruta: str):
         """Deja de reproducir un archivo que se va a borrar (Windows no deja borrar uno abierto)."""
@@ -848,10 +917,10 @@ class Ventana(QMainWindow):
         self.bib.agregar_archivos([Path(ruta)])
         if (aid := self.bib.id_de_ruta(str(Path(ruta).resolve()))) is not None:
             self.bib.asignar(aid, self.bib.categoria_id(CATEGORIA_DOMINIO_PUBLICO), True)
-        self._cargar_filtros()
+        self.cargar_filtros()
         self.statusBar().showMessage(f"Descargada y agregada a la biblioteca: {Path(ruta).stem}", 8000)
 
-    def _abrir_ubicacion(self, ruta: str | None = None):
+    def abrir_ubicacion(self, ruta: str | None = None):
         ruta = ruta or self.txt_ruta.text()
         if not ruta:
             return
@@ -881,7 +950,7 @@ class Ventana(QMainWindow):
             self._importado(nuevos)
 
     def _importado(self, nuevos: int):
-        self._cargar_filtros()
+        self.cargar_filtros()
         self.statusBar().showMessage(f"{nuevos} archivo(s) nuevo(s) agregado(s)", 5000)
 
     def dragEnterEvent(self, e):

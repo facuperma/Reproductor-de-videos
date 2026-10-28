@@ -274,6 +274,20 @@ class Biblioteca:
         )
         return {f[0] for f in filas}
 
+    def categorias_por_archivo(self) -> dict[int, list[int]]:
+        """{id de archivo: [ids de sus categorías]}, de toda la biblioteca de una vez."""
+        resultado: dict[int, list[int]] = {}
+        for aid, cid in self.con.execute("SELECT archivo_id, categoria_id FROM archivo_categoria"):
+            resultado.setdefault(aid, []).append(cid)
+        return resultado
+
+    def archivos_por_id(self, archivo_ids: list[int]) -> list[tuple[int, str, str]]:
+        """(id, ruta, tipo) de esos archivos, en el mismo orden (se saltean los que no existen)."""
+        filas = {f[0]: f for f in self.con.execute(
+            f"SELECT id, ruta, tipo FROM archivos WHERE id IN ({','.join('?' * len(archivo_ids))})",
+            archivo_ids)} if archivo_ids else {}
+        return [filas[a] for a in archivo_ids if a in filas]
+
     def asignar(self, archivo_id: int, categoria_id: int, activa: bool) -> None:
         self.asignar_varios([archivo_id], categoria_id, activa)
 

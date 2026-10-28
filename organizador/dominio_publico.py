@@ -54,6 +54,54 @@ def eliminar_video(ruta_video: str) -> list[str]:
     return [a.name for a in archivos if a.exists() and not a_la_papelera(a)]
 
 
+def cancelar_descargas(bib: Biblioteca, gestor: GestorDescargas, identificadores: list[str]):
+    estados = bib.estados_descarga()
+    for ident in identificadores:
+        if estados.get(ident) == "descargando":
+            gestor.cancelar(ident)
+        elif estados.get(ident) == "pendiente":
+            bib.actualizar_descarga(ident, estado="cancelada")
+
+
+def reintentar_descargas(bib: Biblioteca, gestor: GestorDescargas, identificadores: list[str]):
+    estados = bib.estados_descarga()
+    for ident in identificadores:
+        if estados.get(ident) in ("error", "cancelada"):
+            bib.actualizar_descarga(ident, estado="pendiente", error=None)
+    gestor.despertar()
+
+
+def quitar_descargas(bib: Biblioteca, identificadores: list[str]):
+    # No se borra el registro: así la descarga automática no la vuelve a bajar
+    estados = bib.estados_descarga()
+    for ident in identificadores:
+        if estados.get(ident) == "completa":
+            bib.actualizar_descarga(ident, estado="archivada")
+        elif estados.get(ident) != "descargando":
+            bib.actualizar_descarga(ident, estado="omitida")
+
+
+def peliculas_borrables(bib: Biblioteca, identificadores: list[str]) -> list[str]:
+    """Las que ya están descargadas (las demás no tienen nada que borrar)."""
+    estados = bib.estados_descarga()
+    return [i for i in identificadores if estados.get(i) in ("completa", "archivada")]
+
+
+def eliminar_peliculas(bib: Biblioteca, identificadores: list[str], soltar) -> list[str]:
+    """Manda a la Papelera las películas descargadas y las saca de la biblioteca; la descarga
+    automática no las vuelve a bajar. `soltar(ruta)` deja de reproducirla antes de borrarla.
+    Devuelve los archivos que no se pudieron mover."""
+    fallidos = []
+    for ident in identificadores:
+        if ruta := bib.ruta_descarga(ident):
+            soltar(ruta)
+            fallidos += eliminar_archivos(ruta)
+            if (aid := bib.id_de_ruta(str(Path(ruta).resolve()))) is not None:
+                bib.quitar_archivos([aid])
+        bib.actualizar_descarga(ident, estado="eliminada")
+    return fallidos
+
+
 class VentanaDominioPublico(QWidget):
     # Ruta de una película que se va a borrar: hay que dejar de reproducirla antes
     pelicula_por_eliminar = Signal(str)
@@ -285,35 +333,19 @@ class VentanaDominioPublico(QWidget):
         return [i.data(0, ROL) for i in self.cola.selectedItems()]
 
     def _cancelar(self):
-        estados = self.bib.estados_descarga()
-        for ident in self._seleccion_cola():
-            if estados.get(ident) == "descargando":
-                self.gestor.cancelar(ident)
-            elif estados.get(ident) == "pendiente":
-                self.bib.actualizar_descarga(ident, estado="cancelada")
+        cancelar_descargas(self.bib, self.gestor, self._seleccion_cola())
         self._refrescar_cola()
 
     def _reintentar(self):
-        estados = self.bib.estados_descarga()
-        for ident in self._seleccion_cola():
-            if estados.get(ident) in ("error", "cancelada"):
-                self.bib.actualizar_descarga(ident, estado="pendiente", error=None)
-        self.gestor.despertar()
+        reintentar_descargas(self.bib, self.gestor, self._seleccion_cola())
         self._refrescar_cola()
 
     def _quitar(self):
-        # No se borra el registro: así la descarga automática no la vuelve a bajar
-        estados = self.bib.estados_descarga()
-        for ident in self._seleccion_cola():
-            if estados.get(ident) == "completa":
-                self.bib.actualizar_descarga(ident, estado="archivada")
-            elif estados.get(ident) != "descargando":
-                self.bib.actualizar_descarga(ident, estado="omitida")
+        quitar_descargas(self.bib, self._seleccion_cola())
         self._refrescar_cola()
 
     def _eliminar(self, identificadores: list[str]):
-        estados = self.bib.estados_descarga()
-        borrables = [i for i in identificadores if estados.get(i) in ("completa", "archivada")]
+        borrables = peliculas_borrables(self.bib, identificadores)
         if not borrables:
             QMessageBox.information(self, "Eliminar película", "Seleccioná películas que ya estén descargadas.")
             return
@@ -324,14 +356,8 @@ class VentanaDominioPublico(QWidget):
             "La descarga automática no las vuelve a bajar.",
         ) != QMessageBox.Yes:
             return
-        fallidos = []
-        for ident in borrables:
-            if ruta := self.bib.ruta_descarga(ident):
-                self.pelicula_por_eliminar.emit(ruta)  # la ventana principal suelta el archivo si lo está mostrando
-                fallidos += eliminar_archivos(ruta)
-                if (aid := self.bib.id_de_ruta(str(Path(ruta).resolve()))) is not None:
-                    self.bib.quitar_archivos([aid])
-            self.bib.actualizar_descarga(ident, estado="eliminada")
+        # La ventana principal suelta el archivo si lo está mostrando
+        fallidos = eliminar_peliculas(self.bib, borrables, self.pelicula_por_eliminar.emit)
         self.biblioteca_cambiada.emit()
         self._refrescar_cola()
         if fallidos:
