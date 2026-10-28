@@ -405,8 +405,6 @@ class _Manejador(BaseHTTPRequestHandler):
             self._json(self.remoto.puente.llamar(control.descargas))
         elif ruta == "/api/pantalla/monitores":
             self._json(self._monitores())
-        elif ruta == "/api/pantalla/escribiendo":
-            self._json({"escribiendo": self._escribiendo()})
         elif ruta == "/api/pantalla.mjpg":
             self._transmitir(consulta)
         else:
@@ -544,17 +542,6 @@ class _Manejador(BaseHTTPRequestHandler):
         finally:
             self.remoto._sumar_transmision(-1)
         self.close_connection = True
-
-    def _escribiendo(self) -> bool:
-        """¿El clic dejó el foco en un campo de texto de la PC? Así el celular abre su teclado."""
-        if not self.remoto.permite_control:
-            return False
-        # La primera consulta enciende la accesibilidad de Chrome y similares: se reintenta una vez
-        for espera in (0.2, 0.3):
-            time.sleep(espera)
-            if pantalla_remota.escribiendo():
-                return True
-        return False
 
     def _entrada(self, datos: dict):
         if not self.remoto.permite_control:

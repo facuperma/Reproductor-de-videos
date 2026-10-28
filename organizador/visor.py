@@ -95,6 +95,8 @@ class PantallaVideo(QWidget):
     def __init__(self):
         super().__init__()
         self.setMouseTracking(True)
+        # Tocar el video le saca el foco al buscador: así Espacio pausa en vez de escribir
+        self.setFocusPolicy(Qt.ClickFocus)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.portada = False  # vista previa: dibuja el botón de reproducir encima
         self._frame = None
@@ -104,6 +106,10 @@ class PantallaVideo(QWidget):
         self.panel: QWidget | None = None  # aviso flotante abajo a la derecha
         self._timer_osd = QTimer(self, singleShot=True, interval=1500)
         self._timer_osd.timeout.connect(lambda: self._set_osd(""))
+        # El clic simple espera por si llega el segundo de un doble clic (pantalla completa),
+        # así el doble clic no pausa y reanuda de paso
+        self._timer_clic = QTimer(self, singleShot=True, interval=QApplication.doubleClickInterval())
+        self._timer_clic.timeout.connect(self.clic)
 
     def set_frame(self, frame):
         self._frame = frame
@@ -143,11 +149,12 @@ class PantallaVideo(QWidget):
         self.colocar_panel()
 
     def mouseDoubleClickEvent(self, e):
+        self._timer_clic.stop()
         self.doble_clic.emit()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
-            self.clic.emit()
+            self._timer_clic.start()
 
     def mouseMoveEvent(self, e):
         self.mouse_movido.emit()
@@ -340,7 +347,7 @@ class Visor(QWidget):
 
         # Controles de reproducción
         estilo = self.style()
-        self.btn_play = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaPlay), toolTip="Reproducir / pausar (Espacio)")
+        self.btn_play = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaPlay), toolTip="Reproducir / pausar (Espacio o clic en el video)")
         self.btn_stop = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaStop), toolTip="Detener")
         self.btn_siguiente = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaSkipForward),
                                          toolTip="Siguiente de la cola o capítulo de la categoría (N)")
@@ -447,7 +454,7 @@ class Visor(QWidget):
         self.btn_adelante15.clicked.connect(lambda: self.adelantar(15000))
         self.btn_completa.clicked.connect(self.pedir_pantalla_completa)
         self.pantalla.doble_clic.connect(self.pedir_pantalla_completa)
-        self.pantalla.clic.connect(lambda: self._vista_previa and self.empezar())
+        self.pantalla.clic.connect(self.alternar_play)
         self.imagen.doble_clic.connect(self.pedir_pantalla_completa)
         self.pantalla.mouse_movido.connect(self._actividad)
         self.btn_mute.clicked.connect(self.alternar_mute)
@@ -516,6 +523,7 @@ class Visor(QWidget):
                 self.reproductor.pause()
             else:
                 self.reproductor.play()
+                self.pantalla.setFocus()
         self._actualizar_controles()
 
     def empezar(self):
@@ -530,6 +538,7 @@ class Visor(QWidget):
         else:
             self._posicion_pendiente = self._inicio_ms
         self.reproductor.play()
+        self.pantalla.setFocus()
 
     def _avisar_retomado(self, ms: int):
         if ms:
@@ -573,8 +582,10 @@ class Visor(QWidget):
             self.empezar()
         elif self.reproductor.playbackState() == QMediaPlayer.PlayingState:
             self.reproductor.pause()
+            self.pantalla.mostrar_osd("⏸ Pausa")
         else:
             self.reproductor.play()
+            self.pantalla.mostrar_osd("▶ Reproduciendo")
 
     def adelantar(self, ms: int):
         if self._es_video:

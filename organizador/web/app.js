@@ -815,20 +815,6 @@ function encolarEntrada(datos) {
   enviarCola();
 }
 
-// Después de un clic: si en la PC quedó un campo de texto enfocado, se abre el teclado del celular
-const CLICS_IZQUIERDOS = new Set(["clic", "doble", "clic_aqui"]);
-let consultaEscribir = 0;
-
-async function revisarSiHayQueEscribir() {
-  const n = ++consultaEscribir;
-  try {
-    const r = await api("/api/pantalla/escribiendo");
-    if (n !== consultaEscribir || !r.escribiendo || $("#teclado").hidden) return;  // llegó otro clic
-    const campo = $("#vivo").hidden ? $("#texto") : $("#vivo");
-    if (document.activeElement !== campo) campo.focus();
-  } catch {}
-}
-
 function moverPuntero(dx, dy) {
   cola.dx += dx;
   cola.dy += dy;
@@ -842,7 +828,6 @@ async function enviarCola() {
     for (let datos; (datos = cola.pendientes.shift() || sacarMovimiento());) {
       try {
         await api("/api/pantalla/entrada", datos);
-        if (CLICS_IZQUIERDOS.has(datos.tipo) && datos.boton !== "derecho") revisarSiHayQueEscribir();
       } catch (e) {
         cola.pendientes = [];
         cola.dx = cola.dy = 0;
@@ -959,12 +944,12 @@ function prepararToques() {
   });
   $("#btn-compartir").addEventListener("click", verPantalla);
   $("#btn-dejar").addEventListener("click", dejarDeVer);
+  // Cambiar de modo no abre el teclado: se abre solo al tocar el recuadro de texto
   for (const b of $$("[data-teclado]")) {
     b.addEventListener("click", () => {
       for (const o of $$("[data-teclado]")) o.classList.toggle("activo", o === b);
       $("#vivo").hidden = b.dataset.teclado !== "vivo";
       $("#form-texto").hidden = b.dataset.teclado === "vivo";
-      ($("#vivo").hidden ? $("#texto") : $("#vivo")).focus();
     });
   }
   // El botón Enviar manda solo el texto; Enter manda el texto y un Enter, así en la PC pasa lo

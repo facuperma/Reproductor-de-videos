@@ -136,7 +136,7 @@ Marcá **⏻ Apagar al terminar** en los controles: cuando termine el video (en 
 | Tecla | Acción |
 |---|---|
 | ↑ / ↓ | Archivo anterior / siguiente |
-| Espacio | Reproducir / pausar |
+| Espacio o clic en el video | Reproducir / pausar |
 | ← / → | Retroceder / adelantar 5 s |
 | Shift+← / Shift+→ | Retroceder / adelantar 15 s (también botones ↺15 y 15↻) |
 | F o doble clic | Pantalla completa (Esc para salir) |
