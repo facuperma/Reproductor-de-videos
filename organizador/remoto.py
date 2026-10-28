@@ -32,7 +32,7 @@ from .dominio_publico import (
     reintentar_descargas,
 )
 from .subtitulos_online import buscar_para_visor
-from .visor import TAMANOS_SUB
+from .visor import TAMANOS_SUB, texto_progreso
 
 WEB = Path(__file__).parent / "web"
 ICONO = Path(__file__).parent / "icono.png"
@@ -694,8 +694,10 @@ class _Control:
             raise ErrorRemoto("Filtro desconocido")
         cid = int(categoria) if filtro == "categoria" and categoria else None
         por_archivo = self.bib.categorias_por_archivo()
+        progresos = self.bib.progresos()
         return [{"id": aid, "nombre": nombre, "carpeta": str(Path(ruta).parent), "tipo": tipo,
-                 "existe": Path(ruta).exists(), "categorias": por_archivo.get(aid, [])}
+                 "existe": Path(ruta).exists(), "categorias": por_archivo.get(aid, []),
+                 "visto": texto_progreso(progresos.get(ruta))}
                 for aid, ruta, nombre, tipo in self.bib.listar_archivos(filtro, cid, texto.strip())]
 
     def descargas(self) -> dict:

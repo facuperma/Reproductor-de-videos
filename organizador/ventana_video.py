@@ -22,6 +22,7 @@ class VentanaVideo(QWidget):
         self.visor.buscar_siguiente = bib.siguiente_en_categoria
         self.visor.reproducir_siguiente.connect(lambda r: self.abrir(r, "video"))
         self.visor.subtitulos_cambiados.connect(bib.guardar_subtitulos)
+        self.visor.progreso.connect(bib.guardar_progreso)
         self.visor.pedir_pantalla_completa.connect(self.alternar_pantalla_completa)
         self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, bib, self))
         self.btn_fijar = QPushButton("📌", checkable=True, toolTip="Mantener siempre visible")
@@ -38,7 +39,7 @@ class VentanaVideo(QWidget):
 
     def abrir(self, ruta: str, tipo: str, posicion_ms: int = 0):
         self.setWindowTitle(f"{Path(ruta).name} — TVon")
-        self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta), posicion_ms)
+        self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta), posicion_ms or self.bib.posicion_guardada(ruta))
 
     def alternar_pantalla_completa(self):
         completa = not self.isFullScreen()

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSlider, QStackedWidget, QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
+from .db import RETOMAR_DESDE_MS
 from .subtitulos import Subtitulos, buscar_junto_a, descripcion, subtitulos_junto_a
 
 TAMANOS_SUB = [("Chico", 0.75), ("Normal", 1.0), ("Grande", 1.3), ("Muy grande", 1.6)]
@@ -47,6 +48,7 @@ def atajos_reproductor(ventana: QWidget, visor: "Visor", alternar_completa):
         ("G", lambda: visor.ajustar_retraso(-100)),
         ("H", lambda: visor.ajustar_retraso(100)),
         ("N", visor.siguiente_capitulo),
+        ("Home", lambda: visor.ir_a(0)),
     ):
         QShortcut(QKeySequence(tecla), ventana).activated.connect(accion)
 
@@ -55,6 +57,18 @@ def formato_tiempo(ms: int) -> str:
     s = ms // 1000
     h, m, s = s // 3600, (s % 3600) // 60, s % 60
     return f"{h}:{m:02}:{s:02}" if h else f"{m}:{s:02}"
+
+
+def texto_progreso(progreso: tuple[int, int, bool] | None) -> str:
+    """Columna «Visto»: ✓, dónde quedó o vacío."""
+    if not progreso:
+        return ""
+    posicion, duracion, visto = progreso
+    if visto:
+        return "✓"
+    if posicion >= RETOMAR_DESDE_MS and duracion:
+        return f"{posicion * 100 // duracion} % · {formato_tiempo(posicion)}"
+    return ""
 
 
 def _envolver(texto: str, fm: QFontMetrics, ancho: float) -> list[str]:
@@ -279,6 +293,8 @@ class Visor(QWidget):
     buscar_subtitulos_subdivx = Signal(str)
     # Terminó el video con «Apagar al terminar» marcado
     pedir_apagado = Signal()
+    # (ruta del video, posición ms, duración ms): hasta dónde se vio, para retomarlo
+    progreso = Signal(str, int, int)
 
     # El aviso del siguiente capítulo aparece cuando falta esto para el final
     AVISO_SIGUIENTE_MS = 5_000
@@ -294,6 +310,7 @@ class Visor(QWidget):
         self.apagar_al_terminar = False
         self.ruta_video: str | None = None
         self._posicion_pendiente = 0
+        self._ultimo_guardado = 0
         self._modo = REPRODUCIR
         self._vista_previa = False
         self._inicio_ms = 0  # desde dónde arranca al salir de la vista previa
@@ -460,6 +477,7 @@ class Visor(QWidget):
         o None si nunca se configuró (entonces se buscan subtítulos junto al video).
         posicion_ms: punto desde el que arranca el video.
         modo: REPRODUCIR, VISTA_PREVIA o SI_ES_LARGO."""
+        self.guardar_progreso()
         self._reiniciar_siguiente()
         self.reproductor.stop()
         self.reproductor.setSource(QUrl())
@@ -471,6 +489,7 @@ class Visor(QWidget):
         self._vista_previa = modo != REPRODUCIR
         self.pantalla.portada = False
         self._inicio_ms = posicion_ms
+        self._ultimo_guardado = posicion_ms
         self._posicion_pendiente = 0 if self._vista_previa else posicion_ms
         if ruta is None:
             self.vacio.setText(aviso_vacio)
@@ -507,9 +526,22 @@ class Visor(QWidget):
         if self.reproductor.mediaStatus() in (QMediaPlayer.LoadedMedia, QMediaPlayer.BufferingMedia,
                                               QMediaPlayer.BufferedMedia):
             self.reproductor.setPosition(self._inicio_ms)
+            self._avisar_retomado(self._inicio_ms)
         else:
             self._posicion_pendiente = self._inicio_ms
         self.reproductor.play()
+
+    def _avisar_retomado(self, ms: int):
+        if ms:
+            self.pantalla.mostrar_osd(f"Sigue desde {formato_tiempo(ms)} · Inicio = desde el principio")
+
+    def guardar_progreso(self):
+        """Avisa hasta dónde se vio el video actual (en vista previa todavía no se vio nada)."""
+        if self._es_video and self.ruta_video and not self._vista_previa:
+            pos, dur = self.reproductor.position(), self.reproductor.duration()
+            if pos > 0 and dur > 0:
+                self._ultimo_guardado = pos
+                self.progreso.emit(self.ruta_video, pos, dur)
 
     def posicion_actual(self) -> int:
         """Posición para retomar el video (en vista previa, todavía no empezó)."""
@@ -746,6 +778,8 @@ class Visor(QWidget):
         self.lbl_tiempo.setText(f"{formato_tiempo(pos)} / {formato_tiempo(self.reproductor.duration())}")
         self._actualizar_subtitulo()
         self._revisar_siguiente(pos)
+        if abs(pos - self._ultimo_guardado) >= 10_000:
+            self.guardar_progreso()
 
     def _estado_medio(self, estado):
         if self._vista_previa:
@@ -753,8 +787,11 @@ class Visor(QWidget):
         # La posición inicial solo se puede aplicar cuando el video terminó de cargar
         elif self._posicion_pendiente and estado in (QMediaPlayer.LoadedMedia, QMediaPlayer.BufferedMedia):
             self.reproductor.setPosition(self._posicion_pendiente)
+            self._avisar_retomado(self._posicion_pendiente)
             self._posicion_pendiente = 0
         elif estado == QMediaPlayer.EndOfMedia:
+            if self.ruta_video and (dur := self.reproductor.duration()) > 0:
+                self.progreso.emit(self.ruta_video, dur, dur)
             self._fin_del_video()
 
     # --- Siguiente capítulo ---------------------------------------------------
@@ -886,5 +923,7 @@ class Visor(QWidget):
     def _estado(self, estado):
         icono = QStyle.SP_MediaPause if estado == QMediaPlayer.PlayingState else QStyle.SP_MediaPlay
         self.btn_play.setIcon(self.style().standardIcon(icono))
+        if estado == QMediaPlayer.PausedState:
+            self.guardar_progreso()
         if self._modo_completo:
             self._actividad()

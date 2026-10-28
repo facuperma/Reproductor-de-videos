@@ -500,6 +500,12 @@ function dibujarMas() {
       e.textContent = "★";
       li.append(e);
     }
+    if (a.visto) {
+      const v = document.createElement("span");
+      v.className = a.visto === "✓" ? "visto listo" : "visto";
+      v.textContent = a.visto;
+      li.append(v);
+    }
     li.addEventListener("click", () => app.eligiendo ? alternarSeleccion(a.id, li) : menuArchivo(a));
     alMantener(li, () => { if (!app.eligiendo) { app.eligiendo = true; alternarSeleccion(a.id, li); } });
     ul.append(li);

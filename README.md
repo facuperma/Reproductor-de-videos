@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.4.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.0.exe)** (33 MB)
+**[⬇ TVon-Setup-1.4.1.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.1.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -71,7 +71,7 @@ Con un solo archivo seleccionado aparece el botón **＋ Categoría: …** (tamb
 Botón **🧲 Torrents** en la barra superior: pegá un link magnet (si lo copiaste, ya aparece pegado), abrí un `.torrent` o soltalo sobre TVon. Muestra la cola con progreso, velocidad y tiempo restante; se puede pausar, reanudar y cancelar (borra lo que había bajado).
 
 - Baja a una carpeta oculta dentro de Videos; al terminar, la película pasa a **Videos**, entra a la biblioteca y se le buscan subtítulos.
-- Lo que quede a medias se retoma al volver a abrir TVon.
+- Si cerrás TVon mientras baja, sigue en segundo plano con un ícono junto al reloj de Windows (tocándolo vuelve a abrirse) y se cierra solo cuando terminan las descargas. Con *Salir* en ese ícono se frena todo, y lo que quede a medias se retoma al volver a abrir TVon.
 - Usa [aria2](https://aria2.github.io) (GPL v2), que viene incluido. La primera vez, Windows pregunta por el firewall para `aria2c.exe`: tocá **Permitir**.
 - Mientras baja, el torrent también se comparte con otros. Al terminar deja de compartir.
 
@@ -93,6 +93,14 @@ Botón **🎞 Dominio público** en la barra superior: busca en la colección de
 - El botón ⏭ (o la tecla N) salta al siguiente capítulo en cualquier momento.
 - Los números se ordenan bien: «Cap 2» va antes que «Cap 10», también en la lista.
 
+### Vistos y dónde quedaste
+
+- TVon recuerda hasta dónde viste cada video: al volver a abrirlo sigue desde ahí (la tecla **Inicio** lo arranca desde el principio).
+- Un video cuenta como **visto** al pasar el 90 % (los créditos no hace falta verlos). La columna **Visto** muestra ✓ o cuánto llevás («33 % · 5:00»).
+- Con algo ya visto, la lista se separa en **Sin ver** y **✓ Vistas**, y cada categoría muestra cuántos viste («Serie (10 · 3 ✓)»).
+- En una serie, al elegir su categoría queda listo el capítulo que dejaste a medias o, si no, el primero sin ver.
+- Clic derecho → **Marcar como visto / no visto** para corregirlo a mano. En el celular también aparece el ✓ o el % en la biblioteca.
+
 ### Cola de reproducción
 
 - Clic derecho → **☰ Agregar a la cola** suma los videos seleccionados para después del que estás viendo (sin cortarlo). Si no se está viendo nada, arranca el primero.
@@ -100,7 +108,7 @@ Botón **🎞 Dominio público** en la barra superior: busca en la colección de
 
 ### Eliminar videos
 
-**🗑 Eliminar** (al pie de la lista, con algo seleccionado), clic derecho → **Eliminar del disco** o la tecla **Supr**: manda los archivos a la Papelera de reciclaje con sus subtítulos y los quita de la biblioteca. Se pueden recuperar desde la Papelera.
+**🗑 Eliminar** (al pie de la lista, con algo seleccionado), clic derecho → **Eliminar del disco** o la tecla **Supr**: manda los archivos a la Papelera de reciclaje con sus subtítulos (también el que elegiste a mano, si es solo de ese video) y los quita de la biblioteca. Si la carpeta de la película queda vacía o solo con subtítulos, se va también; si tiene otra cosa (un .txt, fotos…), se deja. Nunca se borran Videos, Descargas ni las carpetas de la biblioteca. Todo se puede recuperar desde la Papelera.
 
 ### Apagar al terminar
 
@@ -133,6 +141,7 @@ Marcá **⏻ Apagar al terminar** en los controles: cuando termine el video (en 
 | Shift+← / Shift+→ | Retroceder / adelantar 15 s (también botones ↺15 y 15↻) |
 | F o doble clic | Pantalla completa (Esc para salir) |
 | N | Siguiente de la cola o capítulo |
+| Inicio | Volver al principio del video |
 | Supr | Eliminar los archivos seleccionados (a la Papelera) |
 | G / H | Subtítulos 0,1 s antes / después |
 | Ctrl+F | Buscar |

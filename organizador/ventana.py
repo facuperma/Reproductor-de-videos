@@ -1,5 +1,6 @@
 """Ventana principal: filtros/categorías, lista de archivos, visor y detalles."""
 import platform
+import shutil
 from html import escape
 import subprocess
 import sys
@@ -7,20 +8,20 @@ from pathlib import Path
 
 from PySide6 import __version__ as VERSION_QT
 from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer, QUrl, QUrlQuery
-from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout,
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter, QStyle, QToolBar,
+    QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter, QStyle, QSystemTrayIcon, QToolBar,
     QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .aviso import AvisoFlotante
-from .db import CATEGORIA_DOMINIO_PUBLICO, CATEGORIA_FAVORITOS, EXT_IMAGEN, EXT_VIDEO, Biblioteca
+from .db import CATEGORIA_DOMINIO_PUBLICO, CATEGORIA_FAVORITOS, EXT_IMAGEN, EXT_VIDEO, Biblioteca, orden_natural
 from .descargas import GestorDescargas
 from .dialogo_config import DialogoConfig
 from .dialogo_on import DialogoOn
-from .dominio_publico import VentanaDominioPublico, eliminar_video
+from .dominio_publico import VentanaDominioPublico, a_la_papelera, eliminar_video
 from .remoto import Remoto
 from .subtitulos import EXT_SUBTITULOS
 from .titulos import titulo_de
@@ -30,7 +31,7 @@ from .vigilancia import Vigilante, borrar_carpetas_vacias, en_uso, mover_video
 from .subtitulos_online import buscar_para_visor, subtitulos_automaticos
 from .ventana_torrents import VentanaTorrents
 from .ventana_video import VentanaVideo
-from .visor import REPRODUCIR, VISTA_PREVIA, Visor, atajos_reproductor
+from .visor import REPRODUCIR, VISTA_PREVIA, Visor, atajos_reproductor, texto_progreso
 
 ROL = Qt.UserRole
 FILTROS_FIJOS = {
@@ -39,6 +40,8 @@ FILTROS_FIJOS = {
     ("imagen", None): "Imágenes",
     ("sin_categoria", None): "Sin categoría",
 }
+# Lo que puede quedar de una película en su carpeta después de borrarla
+EXT_SUBTITULOS_TODOS = EXT_SUBTITULOS | {".ass", ".ssa", ".sub", ".idx"}
 REPOSITORIO = "https://github.com/facuperma/Reproductor-de-videos"
 AUTOR = "Faierwall"
 
@@ -55,6 +58,10 @@ class Ventana(QMainWindow):
         self.ventana_torrents: VentanaTorrents | None = None
         self.aviso: AvisoFlotante | None = None
         self.dialogo_on: DialogoOn | None = None
+        # Al cerrar con torrents bajando, TVon sigue junto al reloj hasta que terminan
+        self._torrents_activos: list = []
+        self.bandeja: QSystemTrayIcon | None = None
+        self._salir = False
         # (aviso, [segundos que faltan], botón «Apagar ahora») mientras corre la cuenta para apagar
         self.apagado_pendiente = None
         self.gestor = GestorDescargas(biblioteca.ruta_db)
@@ -98,13 +105,14 @@ class Ventana(QMainWindow):
 
         # --- Columna central: archivos --------------------------------------
         self.lista = QTreeWidget()
-        self.lista.setHeaderLabels(["Nombre", "Carpeta"])
+        self.lista.setHeaderLabels(["Nombre", "Visto", "Carpeta"])
         self.lista.setRootIsDecorated(False)
         self.lista.setUniformRowHeights(True)
         # Arrastrar con el mouse (o Ctrl/Shift + clic) selecciona varios archivos
         self.lista.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.lista.header().setSectionResizeMode(0, QHeaderView.Interactive)
         self.lista.header().resizeSection(0, 260)
+        self.lista.header().resizeSection(1, 110)
         self.lista.currentItemChanged.connect(self._archivo_cambiado)
         self.lista.itemDoubleClicked.connect(lambda item: self.abrir_en_ventana([item.data(0, ROL)]))
         self.lista.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -135,6 +143,7 @@ class Ventana(QMainWindow):
         self.visor = Visor()
         self.visor.pedir_pantalla_completa.connect(self.alternar_pantalla_completa)
         self.visor.subtitulos_cambiados.connect(self.bib.guardar_subtitulos)
+        self.visor.progreso.connect(self._progreso)
         self.visor.buscar_siguiente = self.bib.siguiente_en_categoria
         self.visor.reproducir_siguiente.connect(self.reproducir)
         self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, self.bib, self))
@@ -385,10 +394,12 @@ class Ventana(QMainWindow):
             # Categoría: se elige el primer video en vista previa (sin arrancar),
             # salvo que el que se está viendo también esté en ella
             if self.filtro[0] == "categoria" and self.lista.currentItem() is None:
-                items = (self.lista.topLevelItem(i) for i in range(self.lista.topLevelItemCount()))
-                if primero := next((it for it in items if it.data(0, ROL)[2] == "video"), None):
-                    self._seleccionar(primero, VISTA_PREVIA)
-                    self.lista.scrollToItem(primero)
+                # Serie o saga: el capítulo que quedó a medias o el primero sin ver
+                videos = {d[1]: it for it in self._items() if (d := it.data(0, ROL))[2] == "video"}
+                orden = sorted(videos, key=lambda r: orden_natural(Path(r).name))
+                if ruta := self.bib.para_seguir(orden) or next(iter(orden), None):
+                    self._seleccionar(videos[ruta], VISTA_PREVIA)
+                    self.lista.scrollToItem(videos[ruta])
 
     def _seleccionar(self, item: QTreeWidgetItem, modo: str):
         self._modo_seleccion = modo
@@ -465,25 +476,45 @@ class Ventana(QMainWindow):
         icono_video = estilo.standardIcon(QStyle.SP_MediaPlay)
         icono_imagen = estilo.standardIcon(QStyle.SP_FileDialogContentsView)
         gris = QBrush(QColor("#7a8599"))
+        progresos = self.bib.progresos()
+        vistas = [f for f in filas if f[3] == "video" and progresos.get(f[1], (0, 0, False))[2]]
+        # Con algo ya visto, la lista se separa en «Sin ver» y «Vistas» (cada parte en su orden)
+        grupos = [(None, filas)]
+        if vistas:
+            ids_vistas = {f[0] for f in vistas}
+            sin_ver = [f for f in filas if f[0] not in ids_vistas]
+            grupos = [(f"SIN VER  ({len(sin_ver)})", sin_ver), (f"✓ VISTAS  ({len(vistas)})", vistas)]
 
         self.lista.blockSignals(True)
         self.lista.clear()
         seleccionar = None
-        for aid, ruta, nombre, tipo in filas:
-            carpeta = str(Path(ruta).parent)
-            item = QTreeWidgetItem([nombre, carpeta])
-            item.setIcon(0, icono_video if tipo == "video" else icono_imagen)
-            item.setData(0, ROL, (aid, ruta, tipo))
-            item.setToolTip(0, ruta)
-            item.setToolTip(1, ruta)
-            if not Path(ruta).exists():
-                item.setForeground(0, gris)
-                item.setText(1, f"{carpeta}  (no encontrado)")
-            self.lista.addTopLevelItem(item)
-            if aid == id_actual:
-                seleccionar = item
-            if aid in ids_seleccionados:
-                item.setSelected(True)
+        for titulo, grupo in grupos:
+            if titulo:
+                if not grupo:
+                    continue
+                cabecera = QTreeWidgetItem([titulo])
+                cabecera.setFlags(Qt.NoItemFlags)
+                fuente = QFont(cabecera.font(0))
+                fuente.setBold(True)
+                cabecera.setFont(0, fuente)
+                cabecera.setForeground(0, gris)
+                self.lista.addTopLevelItem(cabecera)
+                cabecera.setFirstColumnSpanned(True)
+            for aid, ruta, nombre, tipo in grupo:
+                carpeta = str(Path(ruta).parent)
+                item = QTreeWidgetItem([nombre, texto_progreso(progresos.get(ruta)), carpeta])
+                item.setIcon(0, icono_video if tipo == "video" else icono_imagen)
+                item.setData(0, ROL, (aid, ruta, tipo))
+                item.setToolTip(0, ruta)
+                item.setToolTip(2, ruta)
+                if not Path(ruta).exists():
+                    item.setForeground(0, gris)
+                    item.setText(2, f"{carpeta}  (no encontrado)")
+                self.lista.addTopLevelItem(item)
+                if aid == id_actual:
+                    seleccionar = item
+                if aid in ids_seleccionados:
+                    item.setSelected(True)
         # Con las señales bloqueadas, si el archivo actual sigue en la lista
         # el video no se reinicia.
         if seleccionar:
@@ -496,6 +527,34 @@ class Ventana(QMainWindow):
         else:
             self.visor.mostrar(None, None)
             self._mostrar_detalles(None)
+
+    def _items(self) -> list[QTreeWidgetItem]:
+        """Los archivos de la lista, sin las cabeceras «Sin ver» / «Vistas»."""
+        items = (self.lista.topLevelItem(i) for i in range(self.lista.topLevelItemCount()))
+        return [it for it in items if it.data(0, ROL)]
+
+    def _progreso(self, ruta: str, posicion_ms: int, duracion_ms: int):
+        self.bib.guardar_progreso(ruta, posicion_ms, duracion_ms)
+        self._refrescar_progreso(ruta)
+
+    def _refrescar_progreso(self, ruta: str, *_):
+        """Actualiza la columna «Visto» de ese video; si pasó a visto, lo cambia de sección."""
+        item = next((it for it in self._items() if it.data(0, ROL)[1] == ruta), None)
+        if item is None:
+            return
+        texto = texto_progreso(self.bib.progresos().get(ruta))
+        if texto.startswith("✓") != item.text(1).startswith("✓"):
+            self._cargar_archivos()
+            self._actualizar_conteos()
+        else:
+            item.setText(1, texto)
+
+    def _marcar_vistos(self, rutas: list[str], visto: bool):
+        self.bib.marcar_vistos(rutas, visto)
+        self._cargar_archivos()
+        self._actualizar_conteos()
+        self.statusBar().showMessage(
+            f"{len(rutas)} video(s) marcado(s) como {'vistos' if visto else 'no vistos'}", 5000)
 
     def _ids_seleccionados(self) -> list[int]:
         return [item.data(0, ROL)[0] for item in self.lista.selectedItems()]
@@ -517,6 +576,12 @@ class Ventana(QMainWindow):
         menu.addAction(f"⧉ Abrir en ventana nueva ({n})", lambda: self.abrir_en_ventana(seleccion))
         videos = [ruta for _aid, ruta, tipo in seleccion if tipo == "video"]
         menu.addAction(f"☰ Agregar a la cola ({len(videos)})", lambda: self.encolar(videos)).setEnabled(bool(videos))
+        if videos:
+            progresos = self.bib.progresos()
+            if all(progresos.get(r, (0, 0, False))[2] for r in videos):
+                menu.addAction(f"↺ Marcar como no visto ({len(videos)})", lambda: self._marcar_vistos(videos, False))
+            else:
+                menu.addAction(f"✓ Marcar como visto ({len(videos)})", lambda: self._marcar_vistos(videos, True))
         menu.addSeparator()
         if all(self.bib.favoritos in self.bib.categorias_de(a) for a in ids):
             menu.addAction(f"☆ Quitar de {CATEGORIA_FAVORITOS} ({n})", lambda: self.asignar_seleccion(
@@ -575,7 +640,8 @@ class Ventana(QMainWindow):
         datos = item.data(0, ROL) if item else None
         if datos:
             _, ruta, tipo = datos
-            self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta), modo=self._modo_seleccion)
+            self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta), self.bib.posicion_guardada(ruta),
+                               modo=self._modo_seleccion)
         else:
             self.visor.mostrar(None, None)
         self._mostrar_detalles(datos)
@@ -638,6 +704,7 @@ class Ventana(QMainWindow):
     def _actualizar_conteos(self):
         """Refresca los números de la columna izquierda sin recargar la lista de archivos."""
         conteos = {cid: (nombre, n) for cid, nombre, n in self.bib.listar_categorias()}
+        vistos = self.bib.vistos_por_categoria()
         for i in range(self.lista_filtros.count()):
             item = self.lista_filtros.item(i)
             dato = item.data(ROL)
@@ -646,14 +713,15 @@ class Ventana(QMainWindow):
                 item.setText(f"{FILTROS_FIJOS[dato]}  ({n})")
             elif dato and dato[0] == "categoria" and dato[1] in conteos:
                 nombre, n = conteos[dato[1]]
-                item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n})")
+                v = vistos.get(dato[1], 0)
+                item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n}" + (f" · {v} ✓)" if v else ")"))
 
     def mover(self, paso: int):
-        total = self.lista.topLevelItemCount()
-        if total == 0:
+        items = self._items()
+        if not items:
             return
-        actual = self.lista.indexOfTopLevelItem(self.lista.currentItem()) if self.lista.currentItem() else -1
-        self.lista.setCurrentItem(self.lista.topLevelItem((actual + paso) % total))
+        actual = items.index(self.lista.currentItem()) if self.lista.currentItem() in items else -1
+        self.lista.setCurrentItem(items[(actual + paso) % len(items)])
 
     def _quitar_archivo(self):
         ids = self._ids_seleccionados()
@@ -674,14 +742,50 @@ class Ventana(QMainWindow):
         fallidos, borrados = [], []
         for aid, ruta, _tipo in seleccion:
             self._soltar_archivo(ruta)
+            config_sub = self.bib.subtitulos_de(ruta)
             fallidos += eliminar_video(ruta)
             if not Path(ruta).exists():
                 borrados.append(aid)
                 self.bib.marcar_descarga_eliminada(ruta)
+                # El subtítulo elegido a mano (con otro nombre, p. ej. Subs\English.srt), si es solo de este video
+                sub = Path(config_sub[0]) if config_sub and config_sub[0] else None
+                otros = self.bib.con.execute("SELECT COUNT(*) FROM subtitulos WHERE ruta_sub = ? AND ruta_video != ?",
+                                             (str(sub), ruta)).fetchone()[0] if sub else 0
+                if sub and sub.exists() and sub.suffix.lower() in EXT_SUBTITULOS and not otros and not a_la_papelera(sub):
+                    fallidos.append(sub.name)
         self.bib.quitar_archivos(borrados)
+        # La carpeta de la película se va también si no le quedó nada más que subtítulos
+        for carpeta in dict.fromkeys(Path(ruta).parent for aid, ruta, _ in seleccion if aid in borrados):
+            self._borrar_carpeta_sobrante(carpeta)
         self.cargar_filtros()
         self.statusBar().showMessage(f"{len(borrados)} archivo(s) enviado(s) a la Papelera", 8000)
         return len(borrados), fallidos
+
+    def _carpetas_protegidas(self) -> set[Path]:
+        claves = ("carpeta_videos", "carpeta_descargas_sistema", "carpeta_descargas")
+        carpetas = [Path.home(), *(self.bib.config(c) for c in claves), *self.bib.carpetas_biblioteca()]
+        return {Path(c).resolve() for c in carpetas if str(c).strip()}
+
+    def _borrar_carpeta_sobrante(self, carpeta: Path):
+        """Manda a la Papelera la carpeta de un video borrado si solo le quedan subtítulos
+        (o nada). Nunca toca Videos, Descargas, las carpetas de la biblioteca ni la raíz de un disco."""
+        try:
+            carpeta = carpeta.resolve()
+            if not carpeta.is_dir() or carpeta.parent == carpeta or carpeta in self._carpetas_protegidas():
+                return
+            sobrantes = [p for p in carpeta.rglob("*") if p.is_file()]
+            if any(p.suffix.lower() not in EXT_SUBTITULOS_TODOS for p in sobrantes):
+                return
+            if sobrantes:
+                a_la_papelera(carpeta)
+            else:
+                shutil.rmtree(carpeta)  # no quedó ningún archivo: solo subcarpetas vacías (p. ej. Subs)
+            # Y la de arriba si quedó vacía (p. ej. Peliculas\<categoría>)
+            raiz = Path(self.bib.config("carpeta_videos"))
+            if raiz.resolve() in carpeta.parents:
+                borrar_carpetas_vacias(carpeta.parent, raiz)
+        except OSError:
+            pass
 
     def _eliminar_del_disco(self):
         seleccion = [i.data(0, ROL) for i in self.lista.selectedItems()]
@@ -693,7 +797,8 @@ class Ventana(QMainWindow):
         if QMessageBox.question(
             self, "Eliminar del disco",
             f"¿Mandar {len(seleccion)} archivo(s) a la Papelera de reciclaje?\n\n{nombres}\n\n"
-            "También se borran sus subtítulos y se quitan de la biblioteca. "
+            "También se borran sus subtítulos, la carpeta de cada película si queda vacía, "
+            "y se quitan de la biblioteca. "
             "Se pueden recuperar desde la Papelera.",
         ) != QMessageBox.Yes:
             return
@@ -777,14 +882,13 @@ class Ventana(QMainWindow):
 
     def reproducir(self, ruta: str, tipo: str = "video"):
         """Muestra el archivo seleccionándolo en la lista, si está visible (p. ej. el siguiente capítulo)."""
-        for i in range(self.lista.topLevelItemCount()):
-            item = self.lista.topLevelItem(i)
+        for item in self._items():
             if item.data(0, ROL)[1] == ruta and item is not self.lista.currentItem():
                 self._seleccionar(item, REPRODUCIR)
                 self.lista.scrollToItem(item)
                 return
         # Con un filtro o búsqueda que lo oculta, se reproduce igual
-        self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta))
+        self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta), self.bib.posicion_guardada(ruta))
 
     # --- Ventanas flotantes ---------------------------------------------------
 
@@ -805,6 +909,7 @@ class Ventana(QMainWindow):
             ventana.visor.apagar_al_terminar = self.chk_apagar.isChecked()
             ventana.visor.pedir_apagado.connect(self._apagar_computadora)
             ventana.visor.buscar_subtitulos_subdivx.connect(self._buscar_en_subdivx)
+            ventana.visor.progreso.connect(self._refrescar_progreso)
             # En cascada para que no queden una encima de la otra
             desplazamiento = 40 * (len(self.ventanas_video) % 8)
             ventana.move(self.pos() + QPoint(120 + desplazamiento, 100 + desplazamiento))
@@ -812,6 +917,13 @@ class Ventana(QMainWindow):
             ventana.show()
 
     def closeEvent(self, e):
+        if not self._salir and self._torrents_activos:
+            e.ignore()
+            self._pasar_a_segundo_plano()
+            return
+        if self.bandeja:
+            self.bandeja.hide()
+        self.visor.guardar_progreso()
         # Una descarga a medias queda en cola y se retoma al volver a abrir TVon
         self.gestor.detener()
         self.vigilante.detener()
@@ -843,6 +955,63 @@ class Ventana(QMainWindow):
         self.ventana_torrents.activateWindow()
         return self.ventana_torrents
 
+    # --- Segundo plano (junto al reloj de Windows) -------------------------------
+
+    def _pasar_a_segundo_plano(self):
+        """Se esconde junto al reloj para que los torrents sigan bajando; lo demás se frena."""
+        self.visor.guardar_progreso()
+        self.visor.mostrar(None, None)
+        for ventana in [*self.ventanas_video, self.ventana_dominio, self.ventana_torrents, self.dialogo_on, self.aviso]:
+            if ventana:
+                ventana.close()
+        if self.remoto.activo:
+            self.remoto.detener()
+            self._mostrar_on()
+        QApplication.setQuitOnLastWindowClosed(False)
+        if self.bandeja is None:
+            self.bandeja = QSystemTrayIcon(QApplication.windowIcon(), self)
+            menu = QMenu(self)
+            menu.addAction("Abrir TVon", self._volver_del_segundo_plano)
+            menu.addAction("Salir (las descargas siguen al volver a abrirlo)", self._salir_del_todo)
+            self.bandeja.setContextMenu(menu)
+            self.bandeja.activated.connect(
+                lambda motivo: motivo in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick)
+                and self._volver_del_segundo_plano())
+        self._actualizar_bandeja()
+        self.bandeja.show()
+        self.hide()
+        self.bandeja.showMessage(
+            "TVon sigue descargando",
+            "Se cierra solo cuando terminen los torrents. Para abrirlo, tocá el ícono junto al reloj.",
+            QSystemTrayIcon.Information, 8000)
+
+    def _volver_del_segundo_plano(self):
+        self.bandeja.hide()
+        QApplication.setQuitOnLastWindowClosed(True)
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _salir_del_todo(self):
+        self._salir = True
+        self.close()
+        QApplication.quit()
+
+    def _actualizar_bandeja(self):
+        if not self.bandeja:
+            return
+        self.bandeja.setToolTip("TVon · descargando\n" + self.acc_torrents.toolTip())
+        if self.isHidden() and not self._torrents_activos:
+            # Un rato de margen para que se ubique la película y busque subtítulos
+            self.bandeja.showMessage("Descargas terminadas",
+                                     "Las películas ya están en tu carpeta de videos. TVon se cierra en un minuto.",
+                                     QSystemTrayIcon.Information, 8000)
+            QTimer.singleShot(60_000, self._cerrar_si_termino)
+
+    def _cerrar_si_termino(self):
+        if self.isHidden() and not self._torrents_activos:
+            self._salir_del_todo()
+
     def _insignia_torrents(self, descargas: list):
         """Número de descargas en la esquina del botón; el detalle, al pasar el mouse."""
         boton = self.barra_herramientas.widgetForAction(self.acc_torrents)
@@ -863,6 +1032,11 @@ class Ventana(QMainWindow):
             lineas.append(f"{d['nombre'] or 'Link magnet'}: {progreso}" + (f" · {estado}" if estado else ""))
         self.acc_torrents.setToolTip("\n".join(lineas) if lineas
                                      else "Descargar películas con un link magnet o un archivo .torrent")
+        activos = [d for d in descargas if d["estado"] in ("active", "waiting")]
+        terminaron = bool(self._torrents_activos) and not activos
+        self._torrents_activos = activos
+        if self.bandeja and self.bandeja.isVisible() and (terminaron or self._torrents_activos):
+            self._actualizar_bandeja()
 
     def _torrent_terminado(self, videos: list, nombre: str):
         nuevos = self.bib.agregar_archivos([Path(v) for v in videos])

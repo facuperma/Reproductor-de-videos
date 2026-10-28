@@ -52,6 +52,11 @@ CONFIG_DEFECTO = {
 }
 
 CATEGORIA_DOMINIO_PUBLICO = "Dominio público"
+# Un video cuenta como visto al pasar este punto (los créditos no hace falta verlos)
+VISTO_DESDE = 0.9
+# Por debajo de esto no se retoma: se vuelve a empezar desde el principio
+RETOMAR_DESDE_MS = 30_000
+
 # Categoría fija: se crea sola y no se puede renombrar ni borrar
 CATEGORIA_FAVORITOS = "Favoritos"
 
@@ -104,6 +109,15 @@ class Biblioteca:
                 recibido      INTEGER NOT NULL DEFAULT 0,
                 error         TEXT,
                 creada        REAL NOT NULL DEFAULT (julianday('now'))
+            );
+            -- Hasta dónde se vio cada video. visto queda en 1 al pasar el final
+            -- (VISTO_DESDE), aunque después se lo vuelva a ver.
+            CREATE TABLE IF NOT EXISTS progreso (
+                ruta        TEXT PRIMARY KEY,
+                posicion_ms INTEGER NOT NULL DEFAULT 0,
+                duracion_ms INTEGER NOT NULL DEFAULT 0,
+                visto       INTEGER NOT NULL DEFAULT 0,
+                actualizado REAL NOT NULL DEFAULT (julianday('now'))
             );
             """
         )
@@ -331,6 +345,73 @@ class Biblioteca:
         if ruta_video not in rutas:
             return None
         return next((r for r in rutas[rutas.index(ruta_video) + 1:] if Path(r).exists()), None)
+
+    # --- Progreso (vistos y dónde quedó cada video) ------------------------------
+
+    def guardar_progreso(self, ruta: str, posicion_ms: int, duracion_ms: int) -> None:
+        if duracion_ms <= 0:
+            return
+        terminado = posicion_ms >= duracion_ms * VISTO_DESDE
+        # Al terminarlo ya no hay desde dónde seguir: la próxima vez arranca de cero
+        self.con.execute(
+            """
+            INSERT INTO progreso (ruta, posicion_ms, duracion_ms, visto) VALUES (?, ?, ?, ?)
+            ON CONFLICT (ruta) DO UPDATE SET posicion_ms = excluded.posicion_ms,
+                duracion_ms = excluded.duracion_ms, visto = MAX(visto, excluded.visto),
+                actualizado = julianday('now')
+            """,
+            (ruta, 0 if terminado else posicion_ms, duracion_ms, int(terminado)),
+        )
+        self.con.commit()
+
+    def marcar_vistos(self, rutas: list[str], visto: bool) -> None:
+        self.con.executemany(
+            """
+            INSERT INTO progreso (ruta, visto) VALUES (?, ?)
+            ON CONFLICT (ruta) DO UPDATE SET visto = excluded.visto, posicion_ms = 0,
+                actualizado = julianday('now')
+            """,
+            [(r, int(visto)) for r in rutas],
+        )
+        self.con.commit()
+
+    def progresos(self) -> dict[str, tuple[int, int, bool]]:
+        """{ruta: (posición ms, duración ms, visto)} de los videos que se empezaron a ver."""
+        return {r: (p, d, bool(v)) for r, p, d, v in
+                self.con.execute("SELECT ruta, posicion_ms, duracion_ms, visto FROM progreso")}
+
+    def posicion_guardada(self, ruta: str) -> int:
+        """Dónde quedó el video la última vez (0 si casi no se vio o ya se terminó)."""
+        fila = self.con.execute("SELECT posicion_ms FROM progreso WHERE ruta = ?", (ruta,)).fetchone()
+        return fila[0] if fila and fila[0] >= RETOMAR_DESDE_MS else 0
+
+    def para_seguir(self, rutas: list[str]) -> str | None:
+        """De una lista de capítulos en orden: el último que quedó a medias o,
+        si no hay, el primero sin ver."""
+        if not rutas:
+            return None
+        marcadores = ",".join("?" * len(rutas))
+        fila = self.con.execute(
+            f"""SELECT ruta FROM progreso WHERE ruta IN ({marcadores}) AND posicion_ms >= ?
+                ORDER BY actualizado DESC LIMIT 1""",
+            (*rutas, RETOMAR_DESDE_MS),
+        ).fetchone()
+        if fila:
+            return fila[0]
+        vistos = {r for r, in self.con.execute(
+            f"SELECT ruta FROM progreso WHERE visto AND ruta IN ({marcadores})", rutas)}
+        return next((r for r in rutas if r not in vistos), None)
+
+    def vistos_por_categoria(self) -> dict[int, int]:
+        """{id de categoría: cantidad de videos vistos}."""
+        return dict(self.con.execute(
+            """
+            SELECT ac.categoria_id, COUNT(*) FROM archivo_categoria ac
+            JOIN archivos a ON a.id = ac.archivo_id
+            JOIN progreso p ON p.ruta = a.ruta AND p.visto
+            GROUP BY ac.categoria_id
+            """
+        ).fetchall())
 
     # --- Subtítulos ----------------------------------------------------------
 

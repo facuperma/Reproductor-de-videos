@@ -166,6 +166,8 @@ input[type=range] { accent-color: var(--acento); height: 28px; }
 .item.faltante .item-nombre { color: var(--tenue); text-decoration: line-through; }
 .item.elegido { border-color: var(--acento); background: #1a2a52; }
 .item .estrella { color: #facc15; }
+.item .visto { color: #7a8599; font-size: .8em; white-space: nowrap; }
+.item .visto.listo { color: #4ade80; font-size: 1em; }
 .item-acciones { display: flex; gap: 6px; flex: none; }
 .progreso { height: 6px; border-radius: 3px; background: var(--borde); overflow: hidden; margin-top: 6px; }
 .progreso div { height: 100%; background: var(--acento); }
