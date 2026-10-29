@@ -211,7 +211,7 @@ function mostrarEstado() {
     $("#tiempo-dur").textContent = tiempo(rep.duracion);
     if (!volumenTocado) {
       $("#volumen").value = rep.volumen;
-      $("#volumen-valor").textContent = rep.volumen;
+      $("#volumen-valor").textContent = `${rep.volumen} %`;
     }
     $("#btn-silencio").textContent = rep.silencio ? "🔇" : "🔊";
   }
@@ -325,7 +325,7 @@ function prepararReproductor() {
   const volumen = $("#volumen");
   volumen.addEventListener("input", () => {
     volumenTocado = true;
-    $("#volumen-valor").textContent = volumen.value;
+    $("#volumen-valor").textContent = `${volumen.value} %`;
     clearTimeout(relojVolumen);
     relojVolumen = setTimeout(async () => {
       try { await accion("volumen", { valor: +volumen.value }); } catch {}

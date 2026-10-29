@@ -23,6 +23,8 @@ REPRODUCIR = "reproducir"
 VISTA_PREVIA = "vista_previa"   # un cuadro de muestra, hasta que se aprieta reproducir
 SI_ES_LARGO = "si_es_largo"     # vista previa, salvo que dure más que DURACION_LARGA_MS
 DURACION_LARGA_MS = 3_600_000
+# Volumen con el que arranca TVon (antes 70 %: ahora 20 puntos menos)
+VOLUMEN_INICIAL = 50
 
 LOGO = Path(__file__).parent / "icono.png"
 
@@ -343,7 +345,7 @@ class Visor(QWidget):
         self.reproductor = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
         self.reproductor.setAudioOutput(self.audio)
-        self.audio.setVolume(0.7)
+        self.audio.setVolume(VOLUMEN_INICIAL / 100)
         self.sink = QVideoSink(self)
         self.reproductor.setVideoSink(self.sink)
         # Sin esto, al cambiar la salida de Windows (auriculares, parlantes, HDMI)
@@ -369,8 +371,10 @@ class Visor(QWidget):
         self.barra = QSlider(Qt.Horizontal)
         self.lbl_tiempo = QLabel("0:00 / 0:00")
         self.btn_mute = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaVolume), toolTip="Silenciar")
-        self.volumen = QSlider(Qt.Horizontal, maximum=100, value=70)
+        self.volumen = QSlider(Qt.Horizontal, maximum=100, value=VOLUMEN_INICIAL)
         self.volumen.setFixedWidth(60)
+        self.lbl_volumen = QLabel(f"{VOLUMEN_INICIAL} %", toolTip="Volumen")
+        self.lbl_volumen.setMinimumWidth(QFontMetrics(self.lbl_volumen.font()).horizontalAdvance("100 %"))
         self.btn_subs = QToolButton(text="CC", toolTip="Subtítulos", popupMode=QToolButton.InstantPopup)
         self.menu_subs = QMenu(self)
         self.menu_subs.aboutToShow.connect(self._armar_menu_subs)
@@ -392,7 +396,8 @@ class Visor(QWidget):
         for w in (self.btn_atras15, self.btn_play, self.btn_adelante15, self.btn_stop, self.btn_siguiente):
             fila.addWidget(w)
         fila.addWidget(self.barra, 1)
-        for w in (self.lbl_tiempo, self.btn_mute, self.volumen, self.btn_cola, self.btn_subs, self.btn_completa):
+        for w in (self.lbl_tiempo, self.btn_mute, self.volumen, self.lbl_volumen, self.btn_cola, self.btn_subs,
+                  self.btn_completa):
             fila.addWidget(w)
 
         # Barra de sincronización, visible con un archivo de subtítulos cargado.
@@ -477,6 +482,7 @@ class Visor(QWidget):
         self.pantalla.mouse_movido.connect(self._actividad)
         self.btn_mute.clicked.connect(self.alternar_mute)
         self.volumen.valueChanged.connect(lambda v: self.audio.setVolume(v / 100))
+        self.volumen.valueChanged.connect(lambda v: self.lbl_volumen.setText(f"{v} %"))
         self.barra.sliderMoved.connect(self.reproductor.setPosition)
         self.sink.videoFrameChanged.connect(self._nuevo_frame)
         self.sink.subtitleTextChanged.connect(self._texto_pista_interna)
