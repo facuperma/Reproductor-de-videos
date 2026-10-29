@@ -266,7 +266,6 @@ class Ventana(QMainWindow):
         barra.addAction("🎞 Dominio público", self._abrir_dominio_publico)
         self.acc_torrents = barra.addAction("🧲 Torrents", self._abrir_torrents)
         self.acc_torrents.setToolTip("Descargar películas con un link magnet o un archivo .torrent")
-        barra.addAction("⚙ Configuración", self._abrir_configuracion)
         self.acc_on = barra.addAction("📱 ON", self._abrir_on)
         self.acc_on.setToolTip("Manejar TVon desde el celular")
         barra.addSeparator()
@@ -525,20 +524,22 @@ class Ventana(QMainWindow):
                       ("vistas", f"✓ VISTAS  ({len(vistas)})", vistas)]
             if self.bib.config("vistas_arriba") == "1":
                 grupos.reverse()
+        if self.filtro == ("categoria", self.bib.favoritos):
+            grupos = self._grupos_favoritos(filas)
         plegados = self._grupos_plegados()
 
         self.lista.blockSignals(True)
         self.lista.clear()
         seleccionar = None
         for clave, titulo, grupo in grupos:
-            plegado = clave in plegados
+            plegado = self._plegado(clave, plegados)
             if titulo:
                 if not grupo:
                     continue
                 cabecera = QTreeWidgetItem([("▸ " if plegado else "▾ ") + titulo])
                 cabecera.setFlags(Qt.NoItemFlags)
                 cabecera.setData(0, ROL_GRUPO, clave)
-                cabecera.setToolTip(0, "Clic para ocultar o mostrar · clic derecho para moverla")
+                cabecera.setToolTip(0, "Clic para desplegar u ocultar · clic derecho para más opciones")
                 fuente = QFont(cabecera.font(0))
                 fuente.setBold(True)
                 cabecera.setFont(0, fuente)
@@ -582,6 +583,40 @@ class Ventana(QMainWindow):
     def _grupos_plegados(self) -> set[str]:
         return set(filter(None, self.bib.config("grupos_plegados").split(",")))
 
+    @staticmethod
+    def _plegado(clave: str | None, plegados: set[str]) -> bool:
+        """«Sin ver» y «Vistas» arrancan desplegados; las categorías dentro de Favoritos
+        («fav:<id>»), plegadas. Lo guardado es lo que se cambió con un clic."""
+        if clave is None:
+            return False
+        return (clave in plegados) != clave.startswith("fav:")
+
+    def _grupos_favoritos(self, filas: list) -> list:
+        """En Favoritos, cada archivo va dentro de su categoría (un grupo desplegable);
+        los que no tienen otra categoría van sueltos, arriba."""
+        nombres = {cid: nombre for cid, nombre, _ in self.bib.listar_categorias() if cid != self.bib.favoritos}
+        por_archivo = self.bib.categorias_por_archivo()
+        sueltos, por_categoria = [], {}
+        for fila in filas:
+            otras = sorted((c for c in por_archivo.get(fila[0], []) if c in nombres),
+                           key=lambda c: nombres[c].lower())
+            if otras:
+                por_categoria.setdefault(otras[0], []).append(fila)
+            else:
+                sueltos.append(fila)
+        return [(None, None, sueltos)] + [
+            (f"fav:{cid}", f"📁 {nombres[cid]}  ({len(grupo)})", grupo)
+            for cid, grupo in sorted(por_categoria.items(), key=lambda g: nombres[g[0]].lower())]
+
+    def categoria_a_favoritos(self, cid: int, activa: bool):
+        """Toda la categoría (todos sus archivos) entra o sale de Favoritos."""
+        ids = [aid for aid, _r, _n, _t in self.bib.listar_archivos("categoria", cid)]
+        self.asignar_seleccion(ids, self.bib.favoritos, CATEGORIA_FAVORITOS, activa)
+
+    def _categoria_en_favoritos(self, cid: int) -> bool:
+        archivos = self.bib.listar_archivos("categoria", cid)
+        return bool(archivos) and all(self.bib.favoritos in self.bib.categorias_de(a) for a, *_ in archivos)
+
     def _plegar_grupo(self, clave: str):
         self.bib.guardar_config("grupos_plegados", ",".join(sorted(self._grupos_plegados() ^ {clave})))
         self._cargar_archivos()
@@ -592,10 +627,14 @@ class Ventana(QMainWindow):
 
     def _menu_grupo(self, clave: str, pos):
         menu = QMenu(self)
-        plegado = clave in self._grupos_plegados()
+        plegado = self._plegado(clave, self._grupos_plegados())
         menu.addAction("Mostrar" if plegado else "Ocultar", lambda: self._plegar_grupo(clave))
-        arriba = self.bib.config("vistas_arriba") == "1"
-        menu.addAction("Poner «Vistas» abajo" if arriba else "Poner «Vistas» arriba", self._mover_vistas)
+        if clave.startswith("fav:"):
+            cid = int(clave[4:])
+            menu.addAction("☆ Quitar toda la categoría de Favoritos", lambda: self.categoria_a_favoritos(cid, False))
+        else:
+            arriba = self.bib.config("vistas_arriba") == "1"
+            menu.addAction("Poner «Vistas» abajo" if arriba else "Poner «Vistas» arriba", self._mover_vistas)
         menu.exec(self.lista.viewport().mapToGlobal(pos))
 
     def eventFilter(self, objeto, e):
@@ -671,6 +710,13 @@ class Ventana(QMainWindow):
         else:
             menu.addAction(f"★ Agregar a {CATEGORIA_FAVORITOS} ({n})", lambda: self.asignar_seleccion(
                 ids, self.bib.favoritos, CATEGORIA_FAVORITOS, True))
+        # Un capítulo de una serie: ofrecer la serie entera
+        if n == 1:
+            for cid, nombre, _ in categorias:
+                if cid != self.bib.favoritos and cid in self.bib.categorias_de(ids[0]) \
+                        and not self._categoria_en_favoritos(cid):
+                    menu.addAction(f"★ Agregar toda «{nombre}» a {CATEGORIA_FAVORITOS}",
+                                   lambda c=cid: self.categoria_a_favoritos(c, True))
         asignar = menu.addMenu(f"Asignar a categoría ({n})")
         for cid, nombre, _ in categorias:
             asignar.addAction(nombre, lambda c=cid, nom=nombre: self.asignar_seleccion(ids, c, nom, True))
@@ -838,6 +884,14 @@ class Ventana(QMainWindow):
             else:
                 menu.addAction("Quitar el amarillo de pendiente", lambda: self._alternar_pendiente(cid)
                                ).setEnabled(bool(rutas))
+        if cid != self.bib.favoritos:
+            menu.addSeparator()
+            if self._categoria_en_favoritos(cid):
+                menu.addAction("☆ Quitar toda la categoría de Favoritos",
+                               lambda: self.categoria_a_favoritos(cid, False))
+            else:
+                menu.addAction("★ Agregar toda la categoría a Favoritos",
+                               lambda: self.categoria_a_favoritos(cid, True))
         # Renombrar y borrar actúan sobre la categoría abierta (abrir otra cortaría el video)
         if item is self.lista_filtros.currentItem():
             menu.addSeparator()

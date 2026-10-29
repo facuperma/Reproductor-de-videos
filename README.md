@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.4.9.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.9.exe)** (33 MB)
+**[⬇ TVon-Setup-1.5.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.0.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -61,7 +61,11 @@ Seguridad: el QR lleva un código de emparejamiento; cada celular recibe su prop
 - Los videos de **Videos** y **Documentos** (con subcarpetas) se suman solos a la biblioteca: al abrir TVon y cada minuto. Se saltean carpetas ocultas o de programación (`.venv`, `node_modules`…).
 - Los videos que terminan de bajarse en **Descargas** se mueven solos a **Videos** (con sus subtítulos) y entran a la biblioteca. También los de las carpetas que crean los programas de torrents (uTorrent, qBittorrent), si son del último mes; los «sample» se ignoran.
 - Si el programa de torrents sigue compartiendo el archivo, la película aparece igual en la biblioteca apenas termina de bajar, y se mueve a Videos cuando el programa la suelta (conserva categorías y subtítulos).
-- Todo se ajusta en **⚙ Configuración** (agregar o quitar carpetas, desactivar el movimiento).
+- Todo se ajusta en **Configuración → Preferencias** (agregar o quitar carpetas, desactivar el movimiento).
+
+### Favoritos
+
+Clic derecho en una categoría → **★ Agregar toda la categoría a Favoritos** (o, sobre un capítulo, **★ Agregar toda «Serie» a Favoritos**) mete todos sus videos. En **Favoritos**, cada serie aparece como un grupo desplegable **📁 Serie (n)** con sus capítulos adentro; lo que no tiene otra categoría va suelto arriba. Favoritos es fija: nunca se pinta de amarillo ni de verde. En el celular funciona igual.
 
 ### Categoría con el título
 
@@ -126,7 +130,7 @@ Marcá **⏻ Apagar** en los controles: cuando termine el video (en el visor o e
 
 - Si junto al video hay un `.srt` o `.vtt` con el mismo nombre (`video.srt`, `video.es.srt`), se carga solo (prefiere español).
 - Botón **CC**: cargar otro archivo, cambiar entre los idiomas que haya junto al video, elegir pistas incluidas en el video (p. ej. en .mkv), desactivar y cambiar el tamaño.
-- **🌐 Buscar en internet**: descarga subtítulos de [OpenSubtitles](https://www.opensubtitles.com) en los idiomas configurados (por defecto español e inglés). Usa la huella del archivo para encontrar los que están sincronizados con ese video. Hace falta una clave de API gratuita (⚙ Configuración).
+- **🌐 Buscar en internet**: descarga subtítulos de [OpenSubtitles](https://www.opensubtitles.com) en los idiomas configurados (por defecto español e inglés). Usa la huella del archivo para encontrar los que están sincronizados con ese video. Hace falta una clave de API gratuita (Configuración → Preferencias).
 - **Automáticos:** con la clave de OpenSubtitles, cada película nueva (de torrents o de Descargas) recibe sola el subtítulo del primer idioma configurado. Es uno por película, porque la cuenta gratis tiene pocas descargas por día.
 - **🌐 Buscar en subdivx** (en el botón CC): abre [subdivx.com](https://subdivx.com/) con el título limpio de la película copiado, y un cartel en la esquina de la pantalla recuerda pegarlo en el buscador con **Ctrl+V**. El subtítulo que bajes (`.srt`, `.zip`, `.rar` o `.7z`) se coloca solo junto al video y se activa. Si el comprimido trae varios, elige el que más se parece al nombre del video. subdivx no tiene API, por eso la descarga la hacés vos.
 - También se puede soltar el `.srt` sobre la ventana.

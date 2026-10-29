@@ -11,6 +11,7 @@ const app = {
   filtro: { filtro: "todos", categoria: null },
   archivos: [],
   seleccion: new Set(),
+  favAbiertos: new Set(),  // categorías desplegadas dentro de Favoritos
   eligiendo: false,
   peliculas: { q: "", orden: "populares", pagina: 1, lista: [], total: 0 },
   arrastrandoBarra: false,
@@ -471,6 +472,11 @@ function menuCategoria(c) {
         hacer: async () => { await accion("categoria_pendiente", { id: c.id }); cargarBiblioteca(); } },
     );
   }
+  if (!c.fija) {
+    opciones.push(c.en_favoritos
+      ? { texto: "☆ Quitar toda la categoría de Favoritos", hacer: async () => { await accion("categoria_favoritos", { id: c.id, activo: false }); cargarBiblioteca(); } }
+      : { texto: "★ Agregar toda la categoría a Favoritos", hacer: async () => { await accion("categoria_favoritos", { id: c.id, activo: true }); cargarBiblioteca(); } });
+  }
   if (c.fija) return abrirHoja(`Categoría «${c.nombre}»`, opciones);
   abrirHoja(`Categoría «${c.nombre}»`, [
     ...opciones,
@@ -516,42 +522,76 @@ function mostrarArchivos() {
   $("#cantidad-archivos").textContent = `${app.archivos.length} archivo(s)`;
   $("#archivos").replaceChildren();
   dibujados = 0;
-  dibujarMas();
+  if (app.biblioteca && app.filtro.filtro === "categoria" && app.filtro.categoria === app.biblioteca.favoritos) mostrarFavoritos();
+  else dibujarMas();
   mostrarSeleccion();
 }
 
 function dibujarMas() {
   const ul = $("#archivos");
-  const fav = app.biblioteca ? app.biblioteca.favoritos : -1;
-  for (const a of app.archivos.slice(dibujados, dibujados + TANDA)) {
-    let icono = a.tipo === "video" ? "🎬" : "🖼";
-    if (a.tipo === "imagen" && a.existe) {
-      icono = document.createElement("img");
-      icono.loading = "lazy";
-      icono.alt = "";
-      icono.src = `/api/miniatura?id=${a.id}`;
-    }
-    const li = item(a.nombre, a.carpeta, icono);
-    li.dataset.id = a.id;
-    li.classList.toggle("faltante", !a.existe);
-    li.classList.toggle("elegido", app.seleccion.has(a.id));
-    if (a.categorias.includes(fav)) {
-      const e = document.createElement("span");
-      e.className = "estrella";
-      e.textContent = "★";
-      li.append(e);
-    }
-    if (a.visto) {
-      const v = document.createElement("span");
-      v.className = a.visto === "✓" ? "visto listo" : "visto";
-      v.textContent = a.visto;
-      li.append(v);
-    }
-    li.addEventListener("click", () => app.eligiendo ? alternarSeleccion(a.id, li) : menuArchivo(a));
-    alMantener(li, () => { if (!app.eligiendo) { app.eligiendo = true; alternarSeleccion(a.id, li); } });
+  for (const a of app.archivos.slice(dibujados, dibujados + TANDA)) ul.append(itemArchivo(a));
+  dibujados += TANDA;
+}
+
+// En Favoritos, cada archivo va dentro de su categoría: un grupo que se despliega
+function mostrarFavoritos() {
+  const fav = app.biblioteca.favoritos;
+  const nombres = new Map(app.biblioteca.categorias.filter((c) => c.id !== fav).map((c) => [c.id, c.nombre]));
+  const sueltos = [], grupos = new Map();
+  for (const a of app.archivos) {
+    const cid = a.categorias.filter((c) => nombres.has(c))
+      .sort((x, y) => nombres.get(x).localeCompare(nombres.get(y)))[0];
+    if (cid === undefined) sueltos.push(a);
+    else (grupos.get(cid) || grupos.set(cid, []).get(cid)).push(a);
+  }
+  const ul = $("#archivos");
+  ul.append(...sueltos.map(itemArchivo));
+  for (const [cid, archivos] of [...grupos].sort((x, y) => nombres.get(x[0]).localeCompare(nombres.get(y[0])))) {
+    const li = document.createElement("li");
+    li.className = "grupo-fav";
+    const d = document.createElement("details");
+    d.open = app.favAbiertos.has(cid);
+    d.addEventListener("toggle", () => { if (d.open) app.favAbiertos.add(cid); else app.favAbiertos.delete(cid); });
+    const s = document.createElement("summary");
+    s.textContent = `📁 ${nombres.get(cid)} (${archivos.length})`;
+    const dentro = document.createElement("ul");
+    dentro.className = "lista archivos";
+    dentro.append(...archivos.map(itemArchivo));
+    d.append(s, dentro);
+    li.append(d);
     ul.append(li);
   }
-  dibujados += TANDA;
+  dibujados = app.archivos.length;
+}
+
+function itemArchivo(a) {
+  const fav = app.biblioteca ? app.biblioteca.favoritos : -1;
+  let icono = a.tipo === "video" ? "🎬" : "🖼";
+  if (a.tipo === "imagen" && a.existe) {
+    icono = document.createElement("img");
+    icono.loading = "lazy";
+    icono.alt = "";
+    icono.src = `/api/miniatura?id=${a.id}`;
+  }
+  const li = item(a.nombre, a.carpeta, icono);
+  li.dataset.id = a.id;
+  li.classList.toggle("faltante", !a.existe);
+  li.classList.toggle("elegido", app.seleccion.has(a.id));
+  if (a.categorias.includes(fav)) {
+    const e = document.createElement("span");
+    e.className = "estrella";
+    e.textContent = "★";
+    li.append(e);
+  }
+  if (a.visto) {
+    const v = document.createElement("span");
+    v.className = a.visto === "✓" ? "visto listo" : "visto";
+    v.textContent = a.visto;
+    li.append(v);
+  }
+  li.addEventListener("click", () => app.eligiendo ? alternarSeleccion(a.id, li) : menuArchivo(a));
+  alMantener(li, () => { if (!app.eligiendo) { app.eligiendo = true; alternarSeleccion(a.id, li); } });
+  return li;
 }
 
 window.addEventListener("scroll", () => {
@@ -589,6 +629,11 @@ function menuArchivo(a) {
   opciones.push(
     { texto: esFav ? "☆ Quitar de Favoritos" : "★ Agregar a Favoritos",
       hacer: async () => { await accion("favoritos", { ids: [a.id], activo: !esFav }); cargarBiblioteca(); } },
+    // Un capítulo de una serie: la serie entera a Favoritos
+    ...app.biblioteca.categorias.filter((c) => !c.fija && !c.en_favoritos && a.categorias.includes(c.id)).map((c) => ({
+      texto: `★ Agregar toda «${c.nombre}» a Favoritos`,
+      hacer: async () => { await accion("categoria_favoritos", { id: c.id, activo: true }); cargarBiblioteca(); },
+    })),
     { texto: "🏷 Categorías…", hacer: () => menuCategorias([a.id], a.categorias) },
     { texto: "＋ Categoría con el título", hacer: async () => { await accion("categoria_titulo", { id: a.id }); cargarBiblioteca(); } },
     { texto: "⧉ Abrir en una ventana aparte", hacer: () => accion("abrir_ventana", { id: a.id }) },

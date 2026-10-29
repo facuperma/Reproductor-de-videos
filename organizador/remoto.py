@@ -674,6 +674,12 @@ class _Control:
         # Como en la PC: «vista» (todo visto), «pendiente» (algo por ver) o nada (sin videos)
         vistas, sin_pendiente = self.ventana._categorias_vistas(), self.ventana._sin_pendiente()
         videos = self.bib.videos_por_categoria()
+        archivos_de: dict[int, list[int]] = {}
+        por_archivo = self.bib.categorias_por_archivo()
+        for aid, cids in por_archivo.items():
+            for c in cids:
+                archivos_de.setdefault(c, []).append(aid)
+        fav = self.bib.favoritos
 
         def estado(cid: int) -> str | None:
             if cid in vistas:
@@ -685,7 +691,9 @@ class _Control:
             "filtros": [{"filtro": f, "nombre": nombre, "cantidad": len(self.bib.listar_archivos(f))}
                         for (f, _), nombre in FILTROS_FIJOS.items()],
             "categorias": [{"id": cid, "nombre": nombre, "cantidad": n, "fija": cid == self.bib.favoritos,
-                            "estado": estado(cid), "sin_pendiente": cid in sin_pendiente}
+                            "estado": estado(cid), "sin_pendiente": cid in sin_pendiente,
+                            "en_favoritos": cid != fav and bool(archivos_de.get(cid))
+                            and all(fav in por_archivo[a] for a in archivos_de[cid])}
                            for cid, nombre, n in self.bib.listar_categorias()],
             "favoritos": self.bib.favoritos,
         }
@@ -832,7 +840,7 @@ class _Control:
     def accion_buscar_subtitulos(self):
         self._requiere_video()
         if not self.bib.config("os_api_key"):
-            raise ErrorRemoto("Falta la clave de OpenSubtitles: cargala en ⚙ Configuración, en la PC", 409)
+            raise ErrorRemoto("Falta la clave de OpenSubtitles: cargala en Configuración → Preferencias, en la PC", 409)
         buscar_para_visor(self.visor, self.bib, self.ventana)
         return {"aviso": "Buscando subtítulos… aparecen solos en unos segundos"}
 
@@ -923,6 +931,14 @@ class _Control:
         if not rutas:
             raise ErrorRemoto("Esa categoría no tiene videos")
         self.ventana._marcar_vistos(rutas, bool(visto))
+
+    def accion_categoria_favoritos(self, id, activo):
+        """Toda la categoría entra o sale de Favoritos."""
+        nombre = self._nombre_categoria(int(id))
+        if int(id) == self.bib.favoritos:
+            raise ErrorRemoto("Esa ya es Favoritos")
+        self.ventana.categoria_a_favoritos(int(id), bool(activo))
+        return {"aviso": f"«{nombre}» {'agregada a' if activo else 'quitada de'} Favoritos"}
 
     def accion_categoria_pendiente(self, id):
         """Saca (o vuelve a poner) el amarillo de «por ver», sin marcarla vista."""
