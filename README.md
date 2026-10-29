@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.4.5.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.5.exe)** (33 MB)
+**[⬇ TVon-Setup-1.4.6.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.6.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -98,7 +98,7 @@ Botón **🎞 Dominio público** en la barra superior: busca en la colección de
 
 - TVon recuerda hasta dónde viste cada video: al volver a abrirlo sigue desde ahí (la tecla **Inicio** lo arranca desde el principio).
 - Un video cuenta como **visto** al pasar el 90 % (los créditos no hace falta verlos). La columna **Visto** muestra ✓ o cuánto llevás («33 % · 5:00»).
-- Con algo ya visto, la lista se separa en **Sin ver** y **✓ Vistas**, En **Biblioteca y categorías**, las que tienen algo por ver se ven en amarillo y las que ya viste completas pasan al grupo desplegable **✓ Vistas**, en verde claro (clic en la cabecera para desplegarlo u ocultarlo). Clic en la cabecera de un grupo lo oculta o lo muestra (▸ / ▾); con clic derecho, **Vistas** pasa arriba o abajo. TVon lo recuerda.
+- Con algo ya visto, la lista se separa en **Sin ver** y **✓ Vistas**, En **Biblioteca y categorías**, las que tienen algo por ver se ven en amarillo y las que ya viste completas pasan al grupo desplegable **✓ Vistas**, en verde claro (clic en la cabecera para desplegarlo u ocultarlo). Clic derecho en una categoría: **Marcar como vista / no vista** (todos sus videos) o **Quitar el amarillo de pendiente** sin marcarla vista. Clic en la cabecera de un grupo lo oculta o lo muestra (▸ / ▾); con clic derecho, **Vistas** pasa arriba o abajo. TVon lo recuerda.
 - En una serie, al elegir su categoría queda listo el capítulo que dejaste a medias o, si no, el primero sin ver.
 - Clic derecho → **Marcar como visto / no visto** para corregirlo a mano. En el celular también aparece el ✓ o el % en la biblioteca.
 

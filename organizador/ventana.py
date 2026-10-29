@@ -96,6 +96,8 @@ class Ventana(QMainWindow):
         # Clic en la cabecera «Vistas»: desplegar u ocultar las categorías ya vistas
         self.lista_filtros.viewport().installEventFilter(self)
         self._vistas_mostradas: set[int] = set()
+        self.lista_filtros.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.lista_filtros.customContextMenuRequested.connect(self._menu_categoria)
         btn_nueva = QPushButton("+ Nueva categoría")
         btn_renombrar = QPushButton("Renombrar")
         btn_borrar = QPushButton("Borrar")
@@ -788,6 +790,7 @@ class Ventana(QMainWindow):
             return
         conteos = {cid: (nombre, n) for cid, nombre, n in self.bib.listar_categorias()}
         videos = self.bib.videos_por_categoria()
+        sin_pendiente = self._sin_pendiente()
         for i in range(self.lista_filtros.count()):
             item = self.lista_filtros.item(i)
             dato = item.data(ROL)
@@ -799,7 +802,7 @@ class Ventana(QMainWindow):
                 item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n})")
                 if dato[1] in self._vistas_mostradas:
                     item.setForeground(COLOR_VISTA)
-                elif videos.get(dato[1]):
+                elif videos.get(dato[1]) and dato[1] not in sin_pendiente:
                     item.setForeground(COLOR_PENDIENTE)
                 else:
                     item.setData(Qt.ForegroundRole, None)
@@ -808,6 +811,39 @@ class Ventana(QMainWindow):
         """Las categorías con videos que ya están todos vistos."""
         vistos = self.bib.vistos_por_categoria()
         return {cid for cid, n in self.bib.videos_por_categoria().items() if vistos.get(cid, 0) >= n}
+
+    def _sin_pendiente(self) -> set[int]:
+        """Categorías a las que se les sacó a mano el amarillo de «por ver»."""
+        return {int(c) for c in self.bib.config("categorias_sin_pendiente").split(",") if c}
+
+    def _menu_categoria(self, pos):
+        item = self.lista_filtros.itemAt(pos)
+        dato = item.data(ROL) if item else None
+        if not dato or dato[0] != "categoria":
+            return
+        cid = dato[1]
+        rutas = [r for _a, r, _n, tipo in self.bib.listar_archivos("categoria", cid) if tipo == "video"]
+        menu = QMenu(self)
+        if cid in self._vistas_mostradas:
+            menu.addAction("↺ Marcar como no vista", lambda: self._marcar_vistos(rutas, False))
+        else:
+            menu.addAction("✓ Marcar como vista", lambda: self._marcar_vistos(rutas, True)).setEnabled(bool(rutas))
+            if cid in self._sin_pendiente():
+                menu.addAction("Volver a marcarla como pendiente", lambda: self._alternar_pendiente(cid))
+            else:
+                menu.addAction("Quitar el amarillo de pendiente", lambda: self._alternar_pendiente(cid)
+                               ).setEnabled(bool(rutas))
+        # Renombrar y borrar actúan sobre la categoría abierta (abrir otra cortaría el video)
+        if item is self.lista_filtros.currentItem():
+            menu.addSeparator()
+            menu.addAction("Renombrar…", self._renombrar_categoria)
+            menu.addAction("Borrar…", self._borrar_categoria)
+        menu.exec(self.lista_filtros.viewport().mapToGlobal(pos))
+
+    def _alternar_pendiente(self, cid: int):
+        self.bib.guardar_config("categorias_sin_pendiente",
+                                ",".join(str(c) for c in sorted(self._sin_pendiente() ^ {cid})))
+        self._actualizar_conteos()
 
     def _plegar_categorias_vistas(self):
         plegada = self.bib.config("categorias_vistas_plegadas") == "1"
