@@ -116,7 +116,7 @@ class DialogoOn(QDialog):
     def _mostrar(self):
         activo = self.remoto.activo
         self.btn_interruptor.setChecked(activo)
-        self.btn_interruptor.setText("● ON encendido — tocá para apagar" if activo else "Encender ON")
+        self.btn_interruptor.setText("● ON encendido — tocá para apagar" if activo else "○ OFF — tocá para encender")
         self.lbl_qr.setVisible(activo)
         self.lbl_url.setVisible(activo)
         self.lbl_pasos.setVisible(activo)

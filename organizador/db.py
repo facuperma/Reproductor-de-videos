@@ -413,6 +413,17 @@ class Biblioteca:
             """
         ).fetchall())
 
+    def videos_por_categoria(self) -> dict[int, int]:
+        """{id de categoría: cantidad de videos}."""
+        return dict(self.con.execute(
+            """
+            SELECT ac.categoria_id, COUNT(*) FROM archivo_categoria ac
+            JOIN archivos a ON a.id = ac.archivo_id
+            WHERE a.tipo = 'video'
+            GROUP BY ac.categoria_id
+            """
+        ).fetchall())
+
     # --- Subtítulos ----------------------------------------------------------
 
     def subtitulos_de(self, ruta_video: str) -> tuple[str | None, int] | None:

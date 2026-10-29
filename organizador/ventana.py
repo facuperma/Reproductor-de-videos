@@ -37,6 +37,9 @@ from .visor import REPRODUCIR, VISTA_PREVIA, Visor, atajos_reproductor, texto_pr
 ROL = Qt.UserRole
 # En las cabeceras «Sin ver» / «Vistas» de la lista: qué grupo es
 ROL_GRUPO = Qt.UserRole + 1
+# Categorías en la columna izquierda: lo que queda por ver y lo ya visto
+COLOR_PENDIENTE = QColor("#facc15")
+COLOR_VISTA = QColor("#86efac")
 FILTROS_FIJOS = {
     ("todos", None): "Todos",
     ("video", None): "Videos",
@@ -90,6 +93,9 @@ class Ventana(QMainWindow):
         self.lista_filtros = QListWidget()
         self.lista_filtros.currentItemChanged.connect(self._filtro_cambiado)
         self.lista_filtros.itemDoubleClicked.connect(lambda _: self._renombrar_categoria())
+        # Clic en la cabecera «Vistas»: desplegar u ocultar las categorías ya vistas
+        self.lista_filtros.viewport().installEventFilter(self)
+        self._vistas_mostradas: set[int] = set()
         btn_nueva = QPushButton("+ Nueva categoría")
         btn_renombrar = QPushButton("Renombrar")
         btn_borrar = QPushButton("Borrar")
@@ -258,7 +264,7 @@ class Ventana(QMainWindow):
         self.acc_torrents = barra.addAction("🧲 Torrents", self._abrir_torrents)
         self.acc_torrents.setToolTip("Descargar películas con un link magnet o un archivo .torrent")
         barra.addAction("⚙ Configuración", self._abrir_configuracion)
-        self.acc_on = barra.addAction("📱 OFF", self._abrir_on)
+        self.acc_on = barra.addAction("📱 ON", self._abrir_on)
         self.acc_on.setToolTip("Manejar TVon desde el celular")
         barra.addSeparator()
         # Accesos a páginas externas: se abren en el navegador
@@ -387,10 +393,23 @@ class Ventana(QMainWindow):
         separador = QListWidgetItem("CATEGORÍAS")
         separador.setFlags(Qt.NoItemFlags)
         self.lista_filtros.addItem(separador)
-        for cid, _nombre, _cantidad in self.bib.listar_categorias():
+        # Las categorías ya vistas van aparte, en un grupo que se despliega con un clic
+        self._vistas_mostradas = vistas = self._categorias_vistas()
+        categorias = [cid for cid, _nombre, _cantidad in self.bib.listar_categorias()]
+        pendientes = [c for c in categorias if c not in vistas]
+        terminadas = [c for c in categorias if c in vistas]
+        plegada = self.bib.config("categorias_vistas_plegadas") == "1"
+        for cid in pendientes + terminadas:
+            if cid in vistas and cid == terminadas[0]:
+                cabecera = QListWidgetItem(("▸ " if plegada else "▾ ") + f"✓ VISTAS  ({len(terminadas)})")
+                cabecera.setFlags(Qt.NoItemFlags)
+                cabecera.setData(ROL_GRUPO, "categorias_vistas")
+                cabecera.setToolTip("Categorías que ya viste completas · clic para desplegar u ocultar")
+                self.lista_filtros.addItem(cabecera)
             item = QListWidgetItem()
             item.setData(ROL, ("categoria", cid))
             self.lista_filtros.addItem(item)
+            item.setHidden(cid in vistas and plegada)
         self._actualizar_conteos()
 
         seleccion = 0
@@ -577,12 +596,17 @@ class Ventana(QMainWindow):
         menu.exec(self.lista.viewport().mapToGlobal(pos))
 
     def eventFilter(self, objeto, e):
-        if (objeto is self.lista.viewport() and e.type() == QEvent.MouseButtonPress
-                and e.button() == Qt.LeftButton):
-            item = self.lista.itemAt(e.position().toPoint())
-            if item is not None and (clave := item.data(0, ROL_GRUPO)):
-                self._plegar_grupo(clave)
-                return True
+        if e.type() == QEvent.MouseButtonPress and e.button() == Qt.LeftButton:
+            if objeto is self.lista.viewport():
+                item = self.lista.itemAt(e.position().toPoint())
+                if item is not None and (clave := item.data(0, ROL_GRUPO)):
+                    self._plegar_grupo(clave)
+                    return True
+            elif objeto is self.lista_filtros.viewport():
+                item = self.lista_filtros.itemAt(e.position().toPoint())
+                if item is not None and item.data(ROL_GRUPO):
+                    self._plegar_categorias_vistas()
+                    return True
         return super().eventFilter(objeto, e)
 
     def _progreso(self, ruta: str, posicion_ms: int, duracion_ms: int):
@@ -757,9 +781,13 @@ class Ventana(QMainWindow):
         self._cargar_archivos()
 
     def _actualizar_conteos(self):
-        """Refresca los números de la columna izquierda sin recargar la lista de archivos."""
+        """Refresca los números y colores de la columna izquierda sin recargar la lista de archivos:
+        amarillo lo que queda por ver, verde claro lo ya visto."""
+        if self._categorias_vistas() != self._vistas_mostradas:
+            self.cargar_filtros()  # alguna categoría cambió de grupo
+            return
         conteos = {cid: (nombre, n) for cid, nombre, n in self.bib.listar_categorias()}
-        vistos = self.bib.vistos_por_categoria()
+        videos = self.bib.videos_por_categoria()
         for i in range(self.lista_filtros.count()):
             item = self.lista_filtros.item(i)
             dato = item.data(ROL)
@@ -768,8 +796,23 @@ class Ventana(QMainWindow):
                 item.setText(f"{FILTROS_FIJOS[dato]}  ({n})")
             elif dato and dato[0] == "categoria" and dato[1] in conteos:
                 nombre, n = conteos[dato[1]]
-                v = vistos.get(dato[1], 0)
-                item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n}" + (f" · {v} ✓)" if v else ")"))
+                item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n})")
+                if dato[1] in self._vistas_mostradas:
+                    item.setForeground(COLOR_VISTA)
+                elif videos.get(dato[1]):
+                    item.setForeground(COLOR_PENDIENTE)
+                else:
+                    item.setData(Qt.ForegroundRole, None)
+
+    def _categorias_vistas(self) -> set[int]:
+        """Las categorías con videos que ya están todos vistos."""
+        vistos = self.bib.vistos_por_categoria()
+        return {cid for cid, n in self.bib.videos_por_categoria().items() if vistos.get(cid, 0) >= n}
+
+    def _plegar_categorias_vistas(self):
+        plegada = self.bib.config("categorias_vistas_plegadas") == "1"
+        self.bib.guardar_config("categorias_vistas_plegadas", "0" if plegada else "1")
+        self.cargar_filtros()
 
     def mover(self, paso: int):
         items = [it for it in self._items() if not it.isHidden()]
@@ -1162,8 +1205,8 @@ class Ventana(QMainWindow):
         boton = self.barra_herramientas.widgetForAction(self.acc_on)
         boton.setProperty("encendido", self.remoto.activo)
         boton.style().polish(boton)
-        # Solo el botón de la barra dice OFF; el menú sigue diciendo «ON: manejar desde el celular»
-        self.acc_on.setText("📱 ON" if self.remoto.activo else "📱 OFF")
+        # El botón siempre dice ON (el nombre del modo); encendido se pone verde.
+        # Si está apagado se ve en la ventana que abre
         self.acc_on.setToolTip(f"ON encendido: {self.remoto.url}" if self.remoto.activo
                                else "ON apagado: tocá para encenderlo y ver el código QR")
 
