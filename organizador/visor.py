@@ -373,8 +373,10 @@ class Visor(QWidget):
         self.btn_mute = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaVolume), toolTip="Silenciar")
         self.volumen = QSlider(Qt.Horizontal, maximum=100, value=VOLUMEN_INICIAL)
         self.volumen.setFixedWidth(60)
-        self.lbl_volumen = QLabel(f"{VOLUMEN_INICIAL} %", toolTip="Volumen")
-        self.lbl_volumen.setMinimumWidth(QFontMetrics(self.lbl_volumen.font()).horizontalAdvance("100 %"))
+        self.lbl_volumen = QLabel(f"{VOLUMEN_INICIAL} %", toolTip="Volumen", objectName="volumen")
+        negrita = QFont(self.lbl_volumen.font())
+        negrita.setBold(True)  # va en negrita (tema.py)
+        self.lbl_volumen.setMinimumWidth(QFontMetrics(negrita).horizontalAdvance("100 %") + 2)
         self.btn_subs = QToolButton(text="CC", toolTip="Subtítulos", popupMode=QToolButton.InstantPopup)
         self.menu_subs = QMenu(self)
         self.menu_subs.aboutToShow.connect(self._armar_menu_subs)
@@ -482,7 +484,7 @@ class Visor(QWidget):
         self.pantalla.mouse_movido.connect(self._actividad)
         self.btn_mute.clicked.connect(self.alternar_mute)
         self.volumen.valueChanged.connect(lambda v: self.audio.setVolume(v / 100))
-        self.volumen.valueChanged.connect(lambda v: self.lbl_volumen.setText(f"{v} %"))
+        self.volumen.valueChanged.connect(self._volumen_cambiado)
         self.barra.sliderMoved.connect(self.reproductor.setPosition)
         self.sink.videoFrameChanged.connect(self._nuevo_frame)
         self.sink.subtitleTextChanged.connect(self._texto_pista_interna)
@@ -807,6 +809,13 @@ class Visor(QWidget):
 
     def _salida_audio_cambiada(self):
         self.audio.setDevice(QMediaDevices.defaultAudioOutput())
+
+    def _volumen_cambiado(self, valor: int):
+        """El nivel, al lado de la barra y grande sobre el video mientras se mueve."""
+        self.lbl_volumen.setText(f"{valor} %")
+        self.volumen.setToolTip(f"Volumen: {valor} %")
+        if self._es_video:
+            self.pantalla.mostrar_osd(f"🔊 {valor} %")
 
     def alternar_mute(self):
         self.audio.setMuted(not self.audio.isMuted())

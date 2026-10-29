@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from PySide6 import __version__ as VERSION_QT
-from PySide6.QtCore import QEvent, QItemSelectionModel, QPoint, Qt, QTimer, QUrl, QUrlQuery
+from PySide6.QtCore import QByteArray, QEvent, QItemSelectionModel, QPoint, Qt, QTimer, QUrl, QUrlQuery
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout,
@@ -123,9 +123,21 @@ class Ventana(QMainWindow):
         self.lista.setUniformRowHeights(True)
         # Arrastrar con el mouse (o Ctrl/Shift + clic) selecciona varios archivos
         self.lista.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.lista.header().setSectionResizeMode(0, QHeaderView.Interactive)
-        self.lista.header().resizeSection(0, 260)
-        self.lista.header().resizeSection(1, 110)
+        # Columnas: se achican, agrandan y mueven arrastrando; clic derecho en la cabecera las oculta.
+        # Cómo quedaron se guarda y se recupera al abrir TVon.
+        cabecera = self.lista.header()
+        cabecera.setSectionResizeMode(QHeaderView.Interactive)
+        cabecera.setMinimumSectionSize(30)
+        cabecera.resizeSection(0, 260)
+        cabecera.resizeSection(1, 110)
+        if guardado := self.bib.config("columnas_archivos"):
+            cabecera.restoreState(QByteArray.fromBase64(guardado.encode()))
+        cabecera.setContextMenuPolicy(Qt.CustomContextMenu)
+        cabecera.customContextMenuRequested.connect(self._menu_columnas)
+        for senal in (cabecera.sectionResized, cabecera.sectionMoved):
+            senal.connect(self._guardar_columnas)
+        # La carpeta es un vínculo: tocarla abre el Explorador en ese video
+        self.lista.viewport().setMouseTracking(True)
         self.lista.currentItemChanged.connect(self._archivo_cambiado)
         self.lista.itemDoubleClicked.connect(lambda item: self.abrir_en_ventana([item.data(0, ROL)]))
         self.lista.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -512,6 +524,9 @@ class Ventana(QMainWindow):
         icono_video = estilo.standardIcon(QStyle.SP_MediaPlay)
         icono_imagen = estilo.standardIcon(QStyle.SP_FileDialogContentsView)
         gris = QBrush(QColor("#7a8599"))
+        color_vinculo = QBrush(QColor("#9fc2ff"))
+        fuente_vinculo = QFont(self.lista.font())
+        fuente_vinculo.setUnderline(True)
         progresos = self.bib.progresos()
         vistas = [f for f in filas if f[3] == "video" and progresos.get(f[1], (0, 0, False))[2]]
         # Con algo ya visto, la lista se separa en «Sin ver» y «Vistas» (cada parte en su orden).
@@ -552,10 +567,14 @@ class Ventana(QMainWindow):
                 item.setIcon(0, icono_video if tipo == "video" else icono_imagen)
                 item.setData(0, ROL, (aid, ruta, tipo))
                 item.setToolTip(0, ruta)
-                item.setToolTip(2, ruta)
+                item.setToolTip(2, "Abrir la carpeta en el Explorador")
                 if not Path(ruta).exists():
                     item.setForeground(0, gris)
                     item.setText(2, f"{carpeta}  (no encontrado)")
+                    item.setToolTip(2, ruta)
+                else:
+                    item.setForeground(2, color_vinculo)
+                    item.setFont(2, fuente_vinculo)
                 self.lista.addTopLevelItem(item)
                 item.setHidden(plegado)
                 if aid == id_actual:
@@ -637,12 +656,59 @@ class Ventana(QMainWindow):
             menu.addAction("Poner «Vistas» abajo" if arriba else "Poner «Vistas» arriba", self._mover_vistas)
         menu.exec(self.lista.viewport().mapToGlobal(pos))
 
+    COLUMNA_CARPETA = 2
+
+    def _guardar_columnas(self, *_):
+        self.bib.guardar_config("columnas_archivos",
+                                bytes(self.lista.header().saveState().toBase64()).decode())
+
+    def _menu_columnas(self, pos):
+        cabecera = self.lista.header()
+        menu = QMenu(self)
+        visibles = [i for i in range(cabecera.count()) if not cabecera.isSectionHidden(i)]
+        for i in range(cabecera.count()):
+            accion = menu.addAction(self.lista.headerItem().text(i))
+            accion.setCheckable(True)
+            accion.setChecked(i in visibles)
+            # Siempre queda al menos una columna a la vista
+            accion.setEnabled(not (i in visibles and len(visibles) == 1))
+            accion.toggled.connect(lambda ver, c=i: self._mostrar_columna(c, ver))
+        menu.exec(cabecera.mapToGlobal(pos))
+
+    def _mostrar_columna(self, columna: int, visible: bool):
+        cabecera = self.lista.header()
+        cabecera.setSectionHidden(columna, not visible)
+        if visible and cabecera.sectionSize(columna) < 40:
+            cabecera.resizeSection(columna, 120)
+        self._guardar_columnas()
+
+    def _vinculo_carpeta(self, pos) -> str | None:
+        """La ruta del video si el mouse está sobre el texto de su carpeta (el vínculo)."""
+        item = self.lista.itemAt(pos)
+        if (item is None or not item.data(0, ROL) or self.lista.columnAt(pos.x()) != self.COLUMNA_CARPETA
+                or not Path(item.data(0, ROL)[1]).exists()):
+            return None
+        rect = self.lista.visualItemRect(item)
+        inicio = self.lista.header().sectionViewportPosition(self.COLUMNA_CARPETA)
+        ancho = self.lista.fontMetrics().horizontalAdvance(item.text(self.COLUMNA_CARPETA)) + 8
+        ancho = min(ancho, self.lista.header().sectionSize(self.COLUMNA_CARPETA))
+        return item.data(0, ROL)[1] if inicio <= pos.x() <= inicio + ancho and rect.contains(rect.x(), pos.y()) \
+            else None
+
     def eventFilter(self, objeto, e):
+        if not hasattr(self, "lista"):  # todavía se está armando la ventana
+            return super().eventFilter(objeto, e)
+        if objeto is self.lista.viewport() and e.type() == QEvent.MouseMove:
+            vinculo = self._vinculo_carpeta(e.position().toPoint())
+            self.lista.viewport().setCursor(Qt.PointingHandCursor if vinculo else Qt.ArrowCursor)
         if e.type() == QEvent.MouseButtonPress and e.button() == Qt.LeftButton:
             if objeto is self.lista.viewport():
                 item = self.lista.itemAt(e.position().toPoint())
                 if item is not None and (clave := item.data(0, ROL_GRUPO)):
                     self._plegar_grupo(clave)
+                    return True
+                if ruta := self._vinculo_carpeta(e.position().toPoint()):
+                    self.abrir_ubicacion(ruta)
                     return True
             elif objeto is self.lista_filtros.viewport():
                 item = self.lista_filtros.itemAt(e.position().toPoint())

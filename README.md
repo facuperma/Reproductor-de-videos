@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.5.1.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.1.exe)** (33 MB)
+**[⬇ TVon-Setup-1.5.2.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.2.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -35,6 +35,8 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 - La categoría **★ Favoritos** viene incluida y siempre está primera: sumá archivos con clic derecho → *Agregar a Favoritos*.
 - Un clic en un video muestra una **vista previa** (un cuadro del video, sin sonido): se reproduce con clic sobre la imagen, ▶ o Espacio, siempre desde el principio.
 - Al elegir una categoría se selecciona su primer video en vista previa, sin empezar a reproducirse.
+- Columnas de la lista (**Nombre**, **Visto**, **Carpeta**): se achican, agrandan y mueven arrastrando; clic derecho en la cabecera para ocultar o mostrar cada una. TVon recuerda cómo las dejaste. La carpeta es un vínculo: tocarla abre el Explorador con el video marcado.
+- Volumen: el porcentaje se ve al lado de la barra y, al moverlo, grande sobre el video. TVon arranca al 50 %.
 - Menú superior: **Archivo**, **Vista** (ocultar paneles, pantalla completa), **Configuración**, **Acerca de** (versión) y **Reportar un bug** (abre un issue en GitHub con la versión ya completa).
 - Botones **🌐 Películas** ([ext.to](https://ext.to/)) y **🌐 Subtítulos** ([subdivx.com](https://subdivx.com/)) en la barra superior: abren esas páginas en el navegador. Lo que descargues ahí termina en Descargas y TVon lo mueve solo a Videos.
 
