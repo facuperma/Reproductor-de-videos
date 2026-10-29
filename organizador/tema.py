@@ -41,7 +41,13 @@ QLineEdit:focus { border-color: #3d7bfd; }
 QListWidget::item, QTreeWidget::item { padding: 4px; }
 QListWidget::item:selected, QTreeWidget::item:selected { background: #2a4a8c; color: #ffffff; }
 QListWidget::item:hover, QTreeWidget::item:hover { background: #1c2a47; }
-QHeaderView::section { background: #172340; color: #9fb0cc; border: none; padding: 5px; }
+QHeaderView::section {
+    background: #172340; color: #c4d0e6; font-weight: 600; padding: 5px 6px;
+    border: none; border-right: 2px solid #3a5285; border-bottom: 2px solid #3a5285;
+}
+QHeaderView::section:hover { background: #1f2d4d; }
+/* Líneas entre columnas en la lista de archivos, para ver dónde termina cada una */
+QTreeWidget::item { border-right: 1px solid #34497a; }
 QGroupBox { margin-top: 14px; padding-top: 6px; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; color: #9fb0cc; }
 QPushButton {
