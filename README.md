@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.4.3.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.3.exe)** (33 MB)
+**[⬇ TVon-Setup-1.4.4.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.4.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -113,11 +113,11 @@ Botón **🎞 Dominio público** en la barra superior: busca en la colección de
 
 ### Apagar al terminar
 
-Marcá **⏻ Apagar al terminar** en los controles: cuando termine el video (en el visor o en una ventana aparte) no sigue el próximo y la computadora se apaga tras 60 segundos de aviso, con un botón para **Cancelar**. El apagado cierra los demás programas abiertos sin preguntar. La casilla se desmarca sola después de usarla.
+Marcá **⏻ Apagar** en los controles: cuando termine el video (en el visor o en una ventana aparte) no sigue el próximo y la computadora se apaga tras 60 segundos de aviso, con un botón para **Cancelar**. El apagado cierra los demás programas abiertos sin preguntar. La casilla se desmarca sola después de usarla.
 
 ### Varios videos a la vez
 
-- **Doble clic** en la lista, el botón **⧉ Abrir en ventana** o clic derecho → **Abrir en ventana nueva** abre el archivo en una ventana aparte, que se puede mover, redimensionar y poner en pantalla completa (F / Esc / doble clic). La ventana toma el tamaño del video (sin pasarse del 85 % de la pantalla).
+- **Doble clic** en la lista, el botón **⧉ Abrir en ventana** o clic derecho → **Abrir en ventana nueva** abre el archivo en una ventana aparte, que se puede mover, redimensionar y poner en pantalla completa (F / Esc / doble clic). La ventana toma el tamaño del video (sin pasarse del 85 % de la pantalla) y se puede achicar a gusto.
 - Si el video ya se estaba viendo en el visor principal, sigue desde el mismo punto en la ventana.
 - Cada ventana tiene su propio volumen, subtítulos y atajos. 📌 la mantiene siempre visible por encima de las demás.
 

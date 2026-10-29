@@ -49,6 +49,7 @@ QPushButton {
 }
 QPushButton:hover { background: #2a3d66; }
 QPushButton:pressed { background: #3d7bfd; }
+QWidget#controles QPushButton, QWidget#controles QToolButton { padding: 3px 5px; }
 QPushButton:disabled, QWidget:disabled { color: #56627a; }
 QSlider::groove:horizontal { height: 6px; background: #24334f; border-radius: 3px; }
 QSlider::sub-page:horizontal { background: #3d7bfd; border-radius: 3px; }

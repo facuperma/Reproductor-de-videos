@@ -370,7 +370,7 @@ class Visor(QWidget):
         self.lbl_tiempo = QLabel("0:00 / 0:00")
         self.btn_mute = QPushButton(icon=estilo.standardIcon(QStyle.SP_MediaVolume), toolTip="Silenciar")
         self.volumen = QSlider(Qt.Horizontal, maximum=100, value=70)
-        self.volumen.setFixedWidth(90)
+        self.volumen.setFixedWidth(60)
         self.btn_subs = QToolButton(text="CC", toolTip="Subtítulos", popupMode=QToolButton.InstantPopup)
         self.menu_subs = QMenu(self)
         self.menu_subs.aboutToShow.connect(self._armar_menu_subs)
@@ -382,9 +382,13 @@ class Visor(QWidget):
         self.menu_cola.aboutToShow.connect(self._armar_menu_cola)
         self.btn_cola.setMenu(self.menu_cola)
 
-        self.controles = QWidget()
+        # Botones compactos (estilo en tema.py) para que la barra del video quede más larga.
+        # Sin ancho mínimo: la ventana se puede achicar todo lo que se quiera
+        self.controles = QWidget(objectName="controles")
+        self.controles.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self._fila_controles = fila = QHBoxLayout(self.controles)
         fila.setContentsMargins(4, 4, 4, 0)
+        fila.setSpacing(3)
         for w in (self.btn_atras15, self.btn_play, self.btn_adelante15, self.btn_stop, self.btn_siguiente):
             fila.addWidget(w)
         fila.addWidget(self.barra, 1)
@@ -397,6 +401,7 @@ class Visor(QWidget):
         self.lbl_sincronia = QLabel(alignment=Qt.AlignCenter, minimumWidth=120)
         self.lbl_sincronia.setToolTip("Cómo salen los subtítulos respecto del archivo original")
         self.barra_subs = QWidget()
+        self.barra_subs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         fila_subs = QHBoxLayout(self.barra_subs)
         fila_subs.setContentsMargins(4, 2, 4, 0)
         fila_subs.setSpacing(4)

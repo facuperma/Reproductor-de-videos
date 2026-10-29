@@ -155,7 +155,7 @@ class Ventana(QMainWindow):
         self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, self.bib, self))
         self.visor.buscar_subtitulos_subdivx.connect(self._buscar_en_subdivx)
         self.visor.pedir_apagado.connect(self._apagar_computadora)
-        self.chk_apagar = QCheckBox("⏻ Apagar al terminar",
+        self.chk_apagar = QCheckBox("⏻ Apagar",
                                     toolTip="Apaga la computadora cuando termine el video que se está viendo")
         self.chk_apagar.toggled.connect(self._apagar_al_terminar)
         self.visor.agregar_control(self.chk_apagar)
@@ -221,6 +221,15 @@ class Ventana(QMainWindow):
             divisor.addWidget(w)
         divisor.setSizes([230, 430, 740])
         divisor.setStretchFactor(2, 1)
+        # Las dos listas se achican tanto como se quiera, pero nunca desaparecen:
+        # sus botones y textos se recortan en vez de imponer un ancho mínimo
+        for i, panel in enumerate((izq, centro)):
+            divisor.setCollapsible(i, False)
+            panel.setMinimumWidth(60)
+            for w in panel.findChildren(QPushButton) + panel.findChildren(QLabel):
+                w.setSizePolicy(QSizePolicy.Ignored, w.sizePolicy().verticalPolicy())
+            for w in (self.lista_filtros, self.lista):
+                w.setMinimumWidth(0)
         self.setCentralWidget(divisor)
 
         self._crear_menu()

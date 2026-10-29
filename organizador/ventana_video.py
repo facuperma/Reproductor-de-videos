@@ -35,6 +35,7 @@ class VentanaVideo(QWidget):
         capa.addWidget(self.visor)
         atajos_reproductor(self, self.visor, self.alternar_pantalla_completa)
 
+        self.setMinimumSize(240, 160)
         self.resize(800, 500)
         self.abrir(ruta, tipo, posicion_ms)
 
