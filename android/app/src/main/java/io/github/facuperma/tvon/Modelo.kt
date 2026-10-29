@@ -127,6 +127,8 @@ class Modelo(app: Application) : AndroidViewModel(app) {
 
     // Inicio: ver las películas y series de la PC (como Jellyfin)
     var inicio by mutableStateOf<Inicio?>(null)
+    /** Por qué no se pudo cargar el inicio (se reintenta solo). */
+    var inicioError by mutableStateOf<String?>(null)
     var catalogo by mutableStateOf<List<Cartel>>(emptyList())
     var catalogoTipo by mutableStateOf("pelicula")
     var catalogoGenero by mutableStateOf("")
@@ -246,6 +248,13 @@ class Modelo(app: Application) : AndroidViewModel(app) {
                     if (pestana == Pestana.PELICULAS && tic % 2 == 0) {
                         correr { cargarDescargas() }
                         correr { cargarTorrents() }
+                    }
+                    // Si el primer pedido falló (wifi que se cortó, TVon ocupado…), el inicio se vuelve a pedir
+                    if (pestana == Pestana.INICIO && inicio == null && tic % 3 == 0) {
+                        correr {
+                            cargarInicio()
+                            cargarCatalogo()
+                        }
                     }
                 }
                 else -> {}
@@ -517,7 +526,13 @@ class Modelo(app: Application) : AndroidViewModel(app) {
     // --- Inicio: ver en el celular ------------------------------------------------------------------------
 
     suspend fun cargarInicio() {
-        inicio = Inicio.de(leer { it.obj("/api/inicio") })
+        try {
+            inicio = Inicio.de(leer { it.obj("/api/inicio") })
+            inicioError = null
+        } catch (e: ErrorApi) {
+            inicioError = e.message
+            throw e
+        }
     }
 
     private var relojCatalogo: Job? = null

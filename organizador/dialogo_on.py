@@ -122,6 +122,10 @@ class DialogoOn(QDialog):
         self._reloj.start()
         self._mostrar()
 
+    def showEvent(self, evento):
+        super().showEvent(evento)
+        QTimer.singleShot(0, self._dentro_de_la_pantalla)
+
     def _opcion(self, clave: str, activa: bool):
         self.remoto.guardar_opcion(clave, activa)
 
@@ -162,7 +166,9 @@ class DialogoOn(QDialog):
             else:
                 self.lbl_estado.setText("Usarlo fuera de casa:" if fuera else "Escaneá este código con el celular:")
                 url, url_emparejar = self.remoto.url, self.remoto.url_emparejar
-            self.lbl_qr.setPixmap(pixmap_qr(url_emparejar))
+            qr = pixmap_qr(url_emparejar)
+            self.lbl_qr.setPixmap(qr)
+            self.lbl_qr.setMinimumSize(qr.size())  # que la ventana nunca lo aplaste
             self.lbl_url.setText(f"<span style='color:#9fc2ff'>{url}</span>")
             self.lbl_qr.setVisible(not fuera or bool(remota))
             self.lbl_url.setVisible(not fuera or bool(remota))
@@ -186,7 +192,21 @@ class DialogoOn(QDialog):
                 "los subtítulos, las categorías y las descargas. Y si hace falta, ves la pantalla de la PC y "
                 "la manejás con el dedo.")
         self._mostrar_celulares()
-        self.adjustSize()
+        # adjustSize() deja la ventana en 2/3 de la pantalla y aplastaba el QR: se usa el alto que pide
+        alto = min(self.sizeHint().height(), self.screen().availableGeometry().height())
+        self.resize(max(self.sizeHint().width(), self.minimumWidth()), alto)
+        self._dentro_de_la_pantalla()
+
+    def _dentro_de_la_pantalla(self):
+        """Al encender ON la ventana crece hacia abajo: se la corre para que el QR no quede cortado."""
+        if not self.isVisible():
+            return
+        pantalla = self.screen().availableGeometry()
+        marco = self.frameGeometry()
+        x = max(pantalla.left(), min(marco.left(), pantalla.right() - marco.width() + 1))
+        y = max(pantalla.top(), min(marco.top(), pantalla.bottom() - marco.height() + 1))
+        if (x, y) != (marco.left(), marco.top()):
+            self.move(x, y)
 
     def _mostrar_celulares(self):
         self.lista_celulares.clear()

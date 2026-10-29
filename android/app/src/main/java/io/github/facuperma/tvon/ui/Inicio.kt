@@ -78,7 +78,9 @@ fun PestanaInicio(vm: Modelo) {
             )
         }
         if (ini == null) {
-            item { Pista("Cargando la biblioteca de la PC…", Modifier.padding(16.dp)) }
+            val texto = vm.inicioError?.let { "No se pudo cargar la biblioteca: $it. Se reintenta solo…" }
+                ?: "Cargando la biblioteca de la PC…"
+            item { Pista(texto, Modifier.padding(16.dp)) }
             return@LazyColumn
         }
         if (vm.catalogoTexto.isBlank()) {
