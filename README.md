@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar
 
-**[⬇ TVon-Setup-1.6.0.exe](https://github.com/facuperma/TVon-App-de-escritorio-para-organizar-y-ver-videos/raw/main/instalador/TVon-Setup-1.6.0.exe)** (33 MB) — para la PC (Windows 10/11, 64 bits)
+**[⬇ TVon-Setup-1.7.0.exe](https://github.com/facuperma/TVon-App-de-escritorio-para-organizar-y-ver-videos/raw/main/instalador/TVon-Setup-1.7.0.exe)** (34 MB) — para la PC (Windows 10/11, 64 bits)
 
 **[⬇ TVon-ON-1.1.0.apk](https://github.com/facuperma/TVon-App-de-escritorio-para-organizar-y-ver-videos/raw/main/instalador/TVon-ON-1.1.0.apk)** (3 MB) — app para el celular (Android 8 o más nuevo): ver más abajo, en [📱 ON](#-on-manejar-tvon-desde-el-celular)
 

@@ -196,13 +196,32 @@ def _wikipedia(titulo: str, anio: str | None) -> dict | None:
             if palabra not in descripcion and palabra not in texto[:300].lower():
                 continue
             anio_texto = anio or (m.group(0) if (m := re.search(r"\b(19|20)\d{2}\b", descripcion + " " + texto[:200])) else None)
+            imagen = (resumen.get("thumbnail") or {}).get("source")
+            if not imagen and idioma == "es":
+                imagen = _poster_en_ingles(resultado["title"])
             return {
                 "titulo": resumen.get("title") or titulo, "anio": anio_texto, "sinopsis": texto,
-                "generos": [], "puntaje": None,
-                "poster_url": (resumen.get("thumbnail") or {}).get("source"),
-                "fuente": f"Wikipedia ({idioma})",
+                "generos": [], "puntaje": None, "poster_url": imagen, "fuente": f"Wikipedia ({idioma})",
             }
     return None
+
+
+def _poster_en_ingles(titulo_es: str) -> str | None:
+    """La Wikipedia en español no puede tener pósters (tienen derechos); la en inglés sí. Se busca
+    el mismo artículo en inglés y se usa su imagen."""
+    try:
+        datos = pedir_json("https://es.wikipedia.org/w/api.php",
+                           {"action": "query", "prop": "langlinks", "lllang": "en", "titles": titulo_es,
+                            "format": "json"}, cabeceras=AGENTE, timeout=20)
+        enlaces = [e.get("*") for p in datos.get("query", {}).get("pages", {}).values()
+                   for e in p.get("langlinks", []) if e.get("*")]
+        if not enlaces:
+            return None
+        resumen = pedir_json("https://en.wikipedia.org/api/rest_v1/page/summary/"
+                             + quote(enlaces[0].replace(" ", "_"), safe=""), cabeceras=AGENTE, timeout=20)
+        return (resumen.get("thumbnail") or {}).get("source")
+    except Exception:  # noqa: BLE001 - sin póster, la ficha sirve igual
+        return None
 
 
 def _tvmaze(titulo: str) -> dict | None:

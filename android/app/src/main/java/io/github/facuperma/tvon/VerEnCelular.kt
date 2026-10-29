@@ -188,7 +188,8 @@ class VerEnCelular(
 
     private fun terminado() {
         val f = ficha ?: return
-        val d = duracion()
+        // Si no se sabía cuánto duraba (convertido por la PC), terminó donde terminó: queda visto igual
+        val d = duracion().takeIf { it > 0 } ?: posicion()
         if (d > 0) enviarProgreso(f.id, d, d)
         f.siguiente?.let(siguiente)
     }

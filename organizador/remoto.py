@@ -61,9 +61,35 @@ def ffmpeg() -> str | None:
     propio = Path(__file__).parent / "bin" / "ffmpeg.exe"
     if propio.is_file():
         return str(propio)
-    # winget deja un acceso en esta carpeta; TVon abierto desde antes de instalarlo no lo ve en el PATH
-    winget = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe"
-    return shutil.which("ffmpeg") or (str(winget) if winget.exists() else None)
+    if encontrado := shutil.which("ffmpeg"):
+        return encontrado
+    # TVon abierto desde antes de instalarlo no lo ve en el PATH: se busca donde lo deja winget
+    winget = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet"
+    candidatos = [winget / "Links" / "ffmpeg.exe", *sorted(winget.glob("Packages/Gyan.FFmpeg*/*/bin/ffmpeg.exe"))]
+    return next((str(c) for c in candidatos if c.is_file()), None)
+
+
+_duraciones: dict[tuple[str, float], int] = {}
+
+
+def duracion_ms(ruta: str) -> int:
+    """Cuánto dura el video según ffprobe (viene con ffmpeg); 0 si no se sabe. El celular la
+    necesita cuando la PC convierte el video, porque así no la trae."""
+    try:
+        clave = (ruta, os.stat(ruta).st_mtime)
+    except OSError:
+        return 0
+    if clave not in _duraciones:
+        exe = ffmpeg()
+        sonda = Path(exe).with_name("ffprobe.exe") if exe else None
+        try:
+            r = subprocess.run([str(sonda), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", ruta],
+                               capture_output=True, text=True, timeout=10,
+                               creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            _duraciones[clave] = int(float(r.stdout.strip()) * 1000)
+        except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
+            _duraciones[clave] = 0
+    return _duraciones[clave]
 
 
 def subtitulos_del_video(bib, ruta: str) -> list[str]:
@@ -1128,7 +1154,8 @@ class _Control:
             "serie": clave.startswith("serie|"),
             **self._ficha_json(fichas.ficha(self.bib, clave), titulo, anio),
             "existe": Path(ruta).exists(),
-            "posicion": self.bib.posicion_guardada(ruta), "duracion": p[1] if p else 0, "visto": bool(p and p[2]),
+            "posicion": self.bib.posicion_guardada(ruta), "visto": bool(p and p[2]),
+            "duracion": (p[1] if p and p[1] else 0) or duracion_ms(ruta),
             # Sin elección guardada se usa el primero (el que también carga la PC sola)
             "subtitulos": [{"n": i, "texto": descripcion(s, ruta),
                             "elegido": (s == guardado[0]) if guardado else i == 0} for i, s in enumerate(subs)],
