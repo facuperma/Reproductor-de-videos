@@ -9,7 +9,7 @@ from organizador.db import Biblioteca
 from organizador.tema import ESTILO
 from organizador.ventana import Ventana
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 
 # Empaquetado con PyInstaller, los recursos están en sys._MEIPASS
 RECURSOS = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
@@ -33,7 +33,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("TVon")
     app.setApplicationVersion(VERSION)
-    app.setWindowIcon(QIcon(str(RECURSOS / "organizador" / "icono.png")))
+    # El .ico trae los tamaños chicos recortados (solo el anillo con la TV): así el ícono de la
+    # barra de título y de la barra de tareas se ve más grande que achicando el logo entero
+    icono = RECURSOS / "organizador" / "icono.ico"
+    app.setWindowIcon(QIcon(str(icono if icono.exists() else RECURSOS / "organizador" / "icono.png")))
     app.setStyle("Fusion")
     app.setStyleSheet(ESTILO)
     biblioteca = Biblioteca(carpeta_datos() / "biblioteca.db")

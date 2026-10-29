@@ -78,6 +78,7 @@ def main():
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", "TVon",
         "--icon", str(RAIZ / "organizador" / "icono.ico"),
         "--add-data", f"{RAIZ / 'organizador' / 'icono.png'};organizador",
+        "--add-data", f"{RAIZ / 'organizador' / 'icono.ico'};organizador",
         # La app del celular (modo ON)
         "--add-data", f"{RAIZ / 'organizador' / 'web'};organizador/web",
         # Torrents
