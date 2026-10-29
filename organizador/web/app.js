@@ -143,7 +143,7 @@ function irA(pestana) {
   for (const s of $$(".pestana")) s.hidden = s.id !== `pestana-${pestana}`;
   window.scrollTo(0, 0);
   if (pestana === "biblioteca") cargarBiblioteca();
-  if (pestana === "peliculas") { if (!app.peliculas.lista.length) buscarPeliculas(1); cargarDescargas(); }
+  if (pestana === "peliculas") { if (!app.peliculas.lista.length) buscarPeliculas(1); cargarDescargas(); cargarTorrents(); }
   if (pestana === "pantalla") prepararPantalla();
   if (pestana === "mouse") prepararMouse();
   else mantenerClic(false);
@@ -399,40 +399,81 @@ function nombreCategoria(c) {
   return c.id === app.biblioteca.favoritos ? `★ ${c.nombre}` : c.nombre;
 }
 
+function elegirFiltro(filtro, categoria) {
+  app.filtro = { filtro, categoria };
+  mostrarFiltros();
+  cargarArchivos();
+}
+
 function mostrarFiltros() {
   const b = app.biblioteca;
-  const chips = [
-    ...b.filtros.map((f) => ({ texto: `${f.nombre} (${f.cantidad})`, filtro: f.filtro, categoria: null })),
-    ...b.categorias.map((c) => ({ texto: `${nombreCategoria(c)} (${c.cantidad})`, filtro: "categoria", categoria: c.id, cat: c })),
-  ];
+  // Arriba, los filtros fijos (Todos, Videos…); las categorías van en su propia sección
   const cont = $("#filtros");
-  cont.replaceChildren(...chips.map((c) => {
+  cont.replaceChildren(...b.filtros.map((f) => {
     const el = document.createElement("button");
     el.className = "chip";
-    const activo = app.filtro.filtro === c.filtro && app.filtro.categoria === c.categoria;
-    el.classList.toggle("activo", activo);
-    el.textContent = c.texto;
-    el.addEventListener("click", () => {
-      if (activo && c.cat && !c.cat.fija) return menuCategoria(c.cat);
-      app.filtro = { filtro: c.filtro, categoria: c.categoria };
-      mostrarFiltros();
-      cargarArchivos();
-    });
-    alMantener(el, () => c.cat && !c.cat.fija && menuCategoria(c.cat));
+    el.classList.toggle("activo", app.filtro.filtro === f.filtro);
+    el.textContent = `${f.nombre} (${f.cantidad})`;
+    el.addEventListener("click", () => elegirFiltro(f.filtro, null));
     return el;
   }), (() => {
     const nueva = document.createElement("button");
     nueva.className = "chip";
-    nueva.textContent = "+ Nueva";
+    nueva.textContent = "+ Nueva categoría";
     nueva.addEventListener("click", nuevaCategoria);
     return nueva;
   })());
-  // Que la categoría elegida se vea
   cont.querySelector(".activo")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  mostrarCategorias();
+}
+
+// Cada categoría es una tarjeta: amarilla si tiene algo por ver, verde si ya se vio toda.
+// Las vistas van aparte, en un grupo que se despliega.
+function mostrarCategorias() {
+  const cats = app.biblioteca.categorias;
+  const tarjeta = (c) => {
+    const el = document.createElement("button");
+    el.className = "categoria" + (c.estado ? ` ${c.estado}` : "");
+    el.classList.toggle("activo", app.filtro.filtro === "categoria" && app.filtro.categoria === c.id);
+    const n = document.createElement("span");
+    n.className = "categoria-nombre";
+    n.textContent = nombreCategoria(c);
+    const s = document.createElement("span");
+    s.className = "categoria-sub";
+    s.textContent = `${c.cantidad} archivo(s)` + (c.estado === "vista" ? " · ✓ vista" : c.estado === "pendiente" ? " · por ver" : "");
+    el.append(n, s);
+    el.addEventListener("click", () => {
+      elegirFiltro("categoria", c.id);
+      $("#cantidad-archivos").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    alMantener(el, () => menuCategoria(c));
+    return el;
+  };
+  const vistas = cats.filter((c) => c.estado === "vista");
+  $("#categorias").replaceChildren(...cats.filter((c) => c.estado !== "vista").map(tarjeta));
+  $("#categorias-vistas").replaceChildren(...vistas.map(tarjeta));
+  $("#grupo-vistas").hidden = !vistas.length;
+  $("#titulo-vistas").textContent = `✓ Vistas (${vistas.length})`;
+  const pendientes = cats.filter((c) => c.estado === "pendiente").length;
+  $("#categorias-resumen").textContent = `· ${cats.length}` + (pendientes ? ` · ${pendientes} por ver` : "");
 }
 
 function menuCategoria(c) {
+  const opciones = [
+    { texto: "▶ Ver sus archivos", hacer: async () => elegirFiltro("categoria", c.id) },
+  ];
+  if (c.estado === "vista") {
+    opciones.push({ texto: "↺ Marcar como no vista", hacer: async () => { await accion("categoria_vista", { id: c.id, visto: false }); cargarBiblioteca(); } });
+  } else if (c.estado === "pendiente" || c.sin_pendiente) {
+    opciones.push(
+      { texto: "✓ Marcar como vista", hacer: async () => { await accion("categoria_vista", { id: c.id, visto: true }); cargarBiblioteca(); } },
+      { texto: c.sin_pendiente ? "Volver a marcarla como pendiente" : "Quitar el amarillo de pendiente",
+        hacer: async () => { await accion("categoria_pendiente", { id: c.id }); cargarBiblioteca(); } },
+    );
+  }
+  if (c.fija) return abrirHoja(`Categoría «${c.nombre}»`, opciones);
   abrirHoja(`Categoría «${c.nombre}»`, [
+    ...opciones,
     { texto: "✎ Renombrar", hacer: async () => {
       const nombre = pedirTexto("Nuevo nombre de la categoría:", c.nombre);
       if (nombre) { await accion("renombrar_categoria", { id: c.id, nombre }); cargarBiblioteca(); }
@@ -733,7 +774,49 @@ function menuDescarga(d, titulo) {
   abrirHoja(titulo, opciones);
 }
 
+// --- Torrents: el link magnet va del celular a la PC, que lo baja ------------------------------------
+
+async function cargarTorrents() {
+  let lista;
+  try { lista = await api("/api/torrents"); } catch { return; }
+  $("#torrents-vacia").hidden = lista.length > 0;
+  $("#torrents").replaceChildren(...lista.map((t) => {
+    let sub = t.error ? `Error: ${t.error}` : t.estado_texto;
+    if (t.total) sub += ` · ${Math.round(100 * t.recibido / t.total)} % de ${tamano(t.total)}`;
+    if (t.estado === "active" && t.velocidad) sub += ` · ${tamano(t.velocidad)}/s`;
+    if (t.restante) sub += ` · faltan ${t.restante}`;
+    const li = item(t.nombre, sub, t.estado === "paused" ? "⏸" : "🧲");
+    if (t.total) {
+      const barra = document.createElement("div");
+      barra.className = "progreso";
+      const lleno = document.createElement("div");
+      lleno.style.width = `${(100 * t.recibido / t.total).toFixed(1)}%`;
+      barra.append(lleno);
+      li.querySelector(".item-texto").append(barra);
+    }
+    li.addEventListener("click", () => abrirHoja(t.nombre, [
+      t.estado === "paused"
+        ? { texto: "▶ Reanudar", hacer: async () => { await accion("torrent_reanudar", { gid: t.gid }); cargarTorrents(); } }
+        : { texto: "⏸ Pausar", hacer: async () => { await accion("torrent_pausar", { gid: t.gid }); cargarTorrents(); } },
+      { texto: "✕ Cancelar y borrar lo bajado", peligro: true, confirmar: `¿Cancelar «${t.nombre}»? Se borra lo que ya bajó.`,
+        hacer: async () => { await accion("torrent_cancelar", { gid: t.gid }); cargarTorrents(); } },
+    ]));
+    return li;
+  }));
+}
+
 function prepararPeliculas() {
+  $("#form-torrent").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const campo = $("#enlace-torrent");
+    if (!campo.value.trim()) return tostada("Pegá el link magnet (mantené apretado el recuadro → Pegar)", true);
+    campo.blur();
+    try {
+      await accion("torrent_agregar", { enlace: campo.value.trim() });
+      campo.value = "";
+      setTimeout(cargarTorrents, 1500);
+    } catch {}
+  });
   $("#form-peliculas").addEventListener("submit", (ev) => { ev.preventDefault(); $("#buscar-peliculas").blur(); buscarPeliculas(1); });
   $("#orden-peliculas").addEventListener("change", () => buscarPeliculas(1));
   $("#btn-mas-peliculas").addEventListener("click", () => buscarPeliculas(app.peliculas.pagina + 1));
@@ -772,9 +855,11 @@ function verPantalla() {
   const [ancho, calidad, fps] = $("#calidad").value.split(",");
   pantalla.monitor = +$("#monitor").value || 0;
   pantalla.viendo = true;
-  const img = $("#pantalla");
-  img.src = `/api/pantalla.mjpg?${new URLSearchParams({ monitor: pantalla.monitor, ancho, calidad, fps, t: Date.now() })}`;
+  pantalla.corte = new AbortController();
+  recibirPantalla(`/api/pantalla.mjpg?${new URLSearchParams({ monitor: pantalla.monitor, ancho, calidad, fps, t: Date.now() })}`,
+                  pantalla.corte.signal);
   $("#pantalla-apagada").hidden = true;
+  $("#celular-a-pc").hidden = true;
   $("#pantalla-encendida").hidden = false;
   $("#hueco-teclado-pantalla").append($("#teclado"));
   $("#teclado").hidden = !pantalla.control;
@@ -786,10 +871,78 @@ function dejarDeVer() {
   if (!pantalla.viendo) return;
   pantalla.viendo = false;
   // Cortar la conexión: así la PC deja de capturar y saca el aviso
+  pantalla.corte?.abort();
   $("#pantalla").removeAttribute("src");
   $("#pantalla-apagada").hidden = false;
+  $("#celular-a-pc").hidden = false;
   $("#pantalla-encendida").hidden = true;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+
+// La transmisión llega como MJPEG. En vez de dársela al <img> (que puede dibujar un cuadro a
+// medio llegar y se ve cortado), se lee acá: solo se muestran cuadros completos y, si el celular
+// va atrasado, se saltean los viejos para no acumular demora.
+const FIN_CABECERA = [13, 10, 13, 10];
+
+function buscarBytes(datos, patron, desde = 0) {
+  fuera: for (let i = desde; i <= datos.length - patron.length; i++) {
+    for (let j = 0; j < patron.length; j++) if (datos[i + j] !== patron[j]) continue fuera;
+    return i;
+  }
+  return -1;
+}
+
+async function recibirPantalla(url, senal) {
+  const img = $("#pantalla");
+  let pendiente = null, dibujando = false, anterior = null;
+  const dibujar = async () => {
+    if (dibujando || !pendiente) return;
+    dibujando = true;
+    const cuadro = pendiente;
+    pendiente = null;
+    const nuevo = URL.createObjectURL(new Blob([cuadro], { type: "image/jpeg" }));
+    img.src = nuevo;
+    try { await img.decode(); } catch { /* el siguiente cuadro lo arregla */ }
+    if (anterior) URL.revokeObjectURL(anterior);
+    anterior = nuevo;
+    dibujando = false;
+    if (pendiente) requestAnimationFrame(dibujar);
+  };
+  try {
+    const r = await fetch(url, { cache: "no-store", signal: senal });
+    if (!r.ok) {
+      const datos = await r.json().catch(() => ({}));
+      throw new Error(datos.error || `Error ${r.status}`);
+    }
+    const lector = r.body.getReader();
+    let buffer = new Uint8Array(0);
+    for (;;) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      const junto = new Uint8Array(buffer.length + value.length);
+      junto.set(buffer);
+      junto.set(value, buffer.length);
+      buffer = junto;
+      // Cada cuadro: «--cuadro», cabeceras con Content-Length, línea vacía y los bytes del JPEG
+      for (;;) {
+        const fin = buscarBytes(buffer, FIN_CABECERA);
+        if (fin < 0) break;
+        const largo = /Content-Length:\s*(\d+)/i.exec(new TextDecoder().decode(buffer.subarray(0, fin)));
+        if (!largo) { buffer = buffer.subarray(fin + 4); continue; }
+        const inicio = fin + 4, total = inicio + +largo[1];
+        if (buffer.length < total) break;
+        pendiente = buffer.slice(inicio, total);
+        buffer = buffer.slice(total);
+      }
+      if (pendiente) requestAnimationFrame(dibujar);
+    }
+    throw new Error("terminó");
+  } catch (e) {
+    if (senal.aborted || !pantalla.viendo) return;
+    dejarDeVer();
+    mostrarErrorPantalla(e.message === "terminó" || e instanceof TypeError
+      ? "Se cortó la transmisión (¿la PC dejó de compartir o se apagó ON?)." : e.message);
+  }
 }
 
 function entrada(datos) {
@@ -842,11 +995,6 @@ async function enviarCola() {
 function prepararToques() {
   const lienzo = $("#lienzo");
   const img = $("#pantalla");
-  img.addEventListener("error", () => {
-    if (!pantalla.viendo) return;
-    dejarDeVer();
-    mostrarErrorPantalla("Se cortó la transmisión (¿la PC dejó de compartir o se apagó ON?).");
-  });
 
   const relativo = (ev) => {
     const r = img.getBoundingClientRect();
@@ -1164,7 +1312,9 @@ async function iniciar() {
     if (app.pestana === "reproductor" || app.estado?.apagado || app.estado?.siguiente || tic++ % 3 === 0) refrescarEstado();
   }, 1000);
   setInterval(() => refrescarCuadro(), 1500);
-  setInterval(() => { if (app.pestana === "peliculas" && !document.hidden) cargarDescargas(); }, 2000);
+  setInterval(() => {
+    if (app.pestana === "peliculas" && !document.hidden) { cargarDescargas(); cargarTorrents(); }
+  }, 2000);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { dejarDeVer(); mantenerClic(false); } else refrescarEstado();
   });

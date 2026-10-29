@@ -66,6 +66,7 @@ class Ventana(QMainWindow):
         self.dialogo_on: DialogoOn | None = None
         # Al cerrar con torrents bajando, TVon sigue junto al reloj hasta que terminan
         self._torrents_activos: list = []
+        self.torrents_estado: list = []  # todas las descargas de torrents (para el celular)
         self.bandeja: QSystemTrayIcon | None = None
         self._salir = False
         # (aviso, [segundos que faltan], botón «Apagar ahora») mientras corre la cuenta para apagar
@@ -1148,6 +1149,7 @@ class Ventana(QMainWindow):
 
     def _insignia_torrents(self, descargas: list):
         """Número de descargas en la esquina del botón; el detalle, al pasar el mouse."""
+        self.torrents_estado = descargas
         boton = self.barra_herramientas.widgetForAction(self.acc_torrents)
         if not hasattr(self, "_insignia"):
             self._insignia = QLabel(boton, objectName="insignia", alignment=Qt.AlignCenter)

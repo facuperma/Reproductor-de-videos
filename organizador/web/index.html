@@ -17,7 +17,7 @@
 <!-- Sin conexión con TVon todavía: emparejar con el QR -->
 <section id="emparejar" class="emparejar" hidden>
   <img src="icono-192.png" alt="" class="emparejar-logo">
-  <h1>TVon <span class="on">ON</span></h1>
+  <h1>TV<span class="on grande">ON</span></h1>
   <p id="emparejar-texto">Manejá TVon desde el celular.</p>
   <ol>
     <li>En la PC, abrí TVon y tocá <b>📱 ON</b>.</li>
@@ -29,7 +29,7 @@
 <div id="app" hidden>
   <header class="cabecera">
     <img src="icono-192.png" alt="" class="cabecera-logo">
-    <span class="cabecera-titulo">TVon <span class="on">ON</span></span>
+    <span class="cabecera-titulo">TV<span class="on grande">ON</span></span>
     <span id="conexion" class="conexion" title="Conexión con la PC"></span>
   </header>
 
@@ -123,6 +123,15 @@
         <button id="btn-seleccionar" class="boton">Elegir</button>
       </div>
       <div id="filtros" class="chips filtros"></div>
+      <details id="tarjeta-categorias" class="tarjeta desplegable" open>
+        <summary>🏷 Categorías <span id="categorias-resumen" class="pista"></span></summary>
+        <p class="pista leyenda"><span class="punto pendiente"></span>por ver <span class="punto vista"></span>vista · mantené apretada una para más opciones</p>
+        <div id="categorias" class="categorias"></div>
+        <details id="grupo-vistas" class="grupo-vistas">
+          <summary id="titulo-vistas">✓ Vistas</summary>
+          <div id="categorias-vistas" class="categorias"></div>
+        </details>
+      </details>
       <div id="cantidad-archivos" class="pista"></div>
       <ul id="archivos" class="lista archivos"></ul>
       <div id="barra-seleccion" class="barra-seleccion" hidden>
@@ -134,8 +143,20 @@
       </div>
     </section>
 
-    <!-- Dominio público -->
+    <!-- Agregar película: torrents y dominio público -->
     <section id="pestana-peliculas" class="pestana" hidden>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">🧲 Torrent (link magnet)</div>
+        <p class="pista">Copiá el link magnet en el celular, pegalo acá y la PC la baja con 🧲 Torrents. Al terminar entra sola a la biblioteca.</p>
+        <form id="form-torrent" class="buscar">
+          <input id="enlace-torrent" type="text" placeholder="magnet:?xt=…" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false">
+          <button class="boton boton-primario">⬇ Bajar en la PC</button>
+        </form>
+        <ul id="torrents" class="lista"></ul>
+        <p id="torrents-vacia" class="pista">No hay torrents bajando.</p>
+      </div>
+
       <div class="tarjeta">
         <div class="tarjeta-titulo">🎞 Películas de dominio público</div>
         <p class="pista">De la colección del Internet Archive. Se bajan en la PC y entran solas a la biblioteca.</p>
@@ -228,15 +249,24 @@
         <div class="fila">
           <label class="campo">Calidad
             <select id="calidad">
-              <option value="960,45,10">Rápida</option>
-              <option value="1280,60,8" selected>Normal</option>
-              <option value="1920,75,5">Nítida</option>
+              <option value="960,50,25">Fluida (25 fps)</option>
+              <option value="1280,60,15" selected>Normal (15 fps)</option>
+              <option value="1920,75,10">Nítida (10 fps)</option>
             </select>
           </label>
           <label id="campo-monitor" class="campo" hidden>Monitor <select id="monitor"></select></label>
         </div>
         <button id="btn-compartir" class="boton boton-primario ancho">Ver la pantalla</button>
         <p id="pantalla-error" class="error" hidden></p>
+      </div>
+      <div id="celular-a-pc" class="tarjeta">
+        <div class="tarjeta-titulo">📲 Pantalla del celular en la PC</div>
+        <p class="pista">Lo hace Windows por Miracast (el navegador del celular no puede compartir su pantalla):</p>
+        <ol class="pasos">
+          <li>Tocá el botón: en la PC se abre <b>Proyectar en este equipo</b>. Elegí <i>Disponible en todas partes</i> y abrí la app <b>Conectar</b> (si no está, Windows ofrece instalar «Pantalla inalámbrica»).</li>
+          <li>En el celular, bajá la barra de notificaciones y tocá <b>Transmitir</b> / <b>Smart View</b> / <b>Duplicar pantalla</b>, y elegí la PC.</li>
+        </ol>
+        <button data-accion="mostrar_celular" class="boton ancho">📲 Preparar la PC para recibir</button>
       </div>
       <div id="pantalla-encendida" hidden>
         <div class="fila fila-repartida herramientas">
@@ -285,7 +315,7 @@
   <nav class="pestanas">
     <button data-pestana="reproductor" class="activa"><span>▶</span>Reproductor</button>
     <button data-pestana="biblioteca"><span>📚</span>Biblioteca</button>
-    <button data-pestana="peliculas"><span>🎞</span>Películas</button>
+    <button data-pestana="peliculas"><span>➕</span>Agregar película</button>
     <button data-pestana="mouse"><span>🖱</span>Mouse</button>
     <button data-pestana="pantalla"><span>🖥</span>Pantalla</button>
     <button data-pestana="mas"><span>⋯</span>Más</button>

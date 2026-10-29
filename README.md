@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.4.6.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.6.exe)** (33 MB)
+**[⬇ TVon-Setup-1.4.7.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.4.7.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -45,11 +45,12 @@ Botón **📱 ON** en la barra superior (o *Configuración → ON*; se pone verd
 - **Reproductor:** play/pausa, saltos de 5 y 15 s, barra de tiempo, volumen, siguiente capítulo o de la cola, anterior/siguiente de la lista, pantalla completa, *Apagar al terminar* (y cancelar la cuenta para apagar). Muestra lo que se está viendo.
 - **Subtítulos:** elegir archivo o pista, desactivarlos, retraso, tamaño y buscar en OpenSubtitles.
 - **Cola:** ver, reproducir uno ya, quitar o vaciar.
-- **Biblioteca:** buscar, filtrar por categoría, reproducir, encolar, Favoritos, asignar o quitar categorías, crear, renombrar o borrar categorías, *Categoría con el título*, abrir en ventana aparte, quitar de la biblioteca o mandar a la Papelera. Manteniendo apretado se eligen varios.
-- **Películas de dominio público:** buscar, ordenar, descargar, la cola de descargas con su progreso y la descarga automática.
+- **Biblioteca:** buscar; una sección **Categorías** con una tarjeta por categoría (amarilla si tiene algo por ver, verde si ya la viste, y las vistas en un grupo desplegable; manteniéndola apretada se marca vista o se le saca el amarillo); reproducir, encolar, Favoritos, asignar o quitar categorías, crear, renombrar o borrar categorías, *Categoría con el título*, abrir en ventana aparte, quitar de la biblioteca o mandar a la Papelera. Manteniendo apretado se eligen varios.
+- **Agregar película:** pegás un **link magnet** y la PC lo baja con 🧲 Torrents (progreso, pausar, reanudar, cancelar); además, películas de dominio público: buscar, ordenar, descargar, la cola de descargas y la descarga automática.
 - **Mouse:** el celular como touchpad, sin mirar la pantalla (ideal con la PC conectada a la tele): deslizar = mover el puntero, tocar = clic, tocar con dos dedos = clic derecho, deslizar con dos dedos = rueda. Botones **Izquierdo** y **Derecho** (manteniendo el izquierdo y deslizando se arrastra; 🔒 lo deja apretado) y velocidad ajustable.
 - **Teclado en vivo:** lo que escribís en el celular aparece en la PC letra por letra, con tildes, ñ, emojis y el autocorrector de Android. También hay modo *Escribir y enviar* y teclas especiales (Enter, Esc, flechas, Alt+Tab, Win, Ctrl+C/V, volumen…).
-- **Pantalla:** si hace falta, ves la pantalla de la PC en el celular y la manejás con el dedo: tocar = clic, dos toques = doble clic, mantener = clic derecho, deslizar = rueda, o el modo *Arrastrar*. Con teclado, teclas especiales (Enter, Esc, flechas, Alt+Tab…) y volumen de Windows. Mientras el celular mira la pantalla, TVon lo avisa abajo con un botón para cortar.
+- **Pantalla:** si hace falta, ves la pantalla de la PC en el celular y la manejás con el dedo: tocar = clic, dos toques = doble clic, mantener = clic derecho, deslizar = rueda, o el modo *Arrastrar*. Con teclado, teclas especiales (Enter, Esc, flechas, Alt+Tab…) y volumen de Windows. Calidad *Fluida* (25 cuadros por segundo), *Normal* (15) o *Nítida* (10); solo se muestran cuadros completos, sin cortes. Mientras el celular mira la pantalla, TVon lo avisa abajo con un botón para cortar.
+- **Celular → PC:** para ver la pantalla del celular en la PC (o la tele), TVon abre *Proyectar en este equipo* de Windows y el celular transmite con *Transmitir / Smart View* (Miracast). El navegador del celular no puede compartir su pantalla, por eso se usa lo de Windows.
 
 Seguridad: el QR lleva un código de emparejamiento; cada celular recibe su propia sesión y se puede desconectar desde la PC (*Desconectar todos*, *Cambiar el código QR*). Compartir la pantalla y manejar el mouse y el teclado se pueden apagar en las opciones de ON. La conexión es solo dentro de la red local y sin cifrar: usalo en tu wifi de casa, no en redes públicas. La primera vez, Windows pregunta por el firewall: hay que tocar **Permitir**.
 

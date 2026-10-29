@@ -32,6 +32,7 @@ from .dominio_publico import (
     reintentar_descargas,
 )
 from .subtitulos_online import buscar_para_visor
+from .torrents import ErrorTorrent
 from .visor import TAMANOS_SUB, texto_progreso
 
 WEB = Path(__file__).parent / "web"
@@ -403,6 +404,8 @@ class _Manejador(BaseHTTPRequestHandler):
             self._json(self._buscar_peliculas(consulta))
         elif ruta == "/api/dp/cola":
             self._json(self.remoto.puente.llamar(control.descargas))
+        elif ruta == "/api/torrents":
+            self._json(self.remoto.puente.llamar(control.torrents))
         elif ruta == "/api/pantalla/monitores":
             self._json(self._monitores())
         elif ruta == "/api/pantalla.mjpg":
@@ -520,7 +523,7 @@ class _Manejador(BaseHTTPRequestHandler):
         monitor = self._monitor(consulta.get("monitor", 0))
         ancho = min(max(int(consulta.get("ancho", 1280)), 320), 3840)
         calidad = min(max(int(consulta.get("calidad", 60)), 20), 95)
-        pausa = 1 / min(max(float(consulta.get("fps", 8)), 1), 20)
+        pausa = 1 / min(max(float(consulta.get("fps", 8)), 1), 30)
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=cuadro")
         self.send_header("Cache-Control", "no-store")
@@ -668,10 +671,20 @@ class _Control:
 
     def biblioteca(self) -> dict:
         from .ventana import FILTROS_FIJOS
+        # Como en la PC: «vista» (todo visto), «pendiente» (algo por ver) o nada (sin videos)
+        vistas, sin_pendiente = self.ventana._categorias_vistas(), self.ventana._sin_pendiente()
+        videos = self.bib.videos_por_categoria()
+
+        def estado(cid: int) -> str | None:
+            if cid in vistas:
+                return "vista"
+            return "pendiente" if videos.get(cid) and cid not in sin_pendiente else None
+
         return {
             "filtros": [{"filtro": f, "nombre": nombre, "cantidad": len(self.bib.listar_archivos(f))}
                         for (f, _), nombre in FILTROS_FIJOS.items()],
-            "categorias": [{"id": cid, "nombre": nombre, "cantidad": n, "fija": cid == self.bib.favoritos}
+            "categorias": [{"id": cid, "nombre": nombre, "cantidad": n, "fija": cid == self.bib.favoritos,
+                            "estado": estado(cid), "sin_pendiente": cid in sin_pendiente}
                            for cid, nombre, n in self.bib.listar_categorias()],
             "favoritos": self.bib.favoritos,
         }
@@ -700,6 +713,15 @@ class _Control:
                 "auto": {"activa": self.bib.config("auto_activa") == "1",
                          "max_peliculas": int(self.bib.config("auto_max_peliculas") or 0),
                          "max_gb": int(float(self.bib.config("auto_max_gb") or 0))}}
+
+    def torrents(self) -> list[dict]:
+        """Las descargas de torrents, como las muestra la ventana 🧲 Torrents de la PC."""
+        from .ventana_torrents import ESTADOS as ESTADOS_TORRENT, VentanaTorrents
+        return [{"gid": d["gid"], "nombre": d["nombre"] or "Link magnet (buscando los datos…)",
+                 "estado": d["estado"], "estado_texto": ESTADOS_TORRENT.get(d["estado"], d["estado"]),
+                 "total": d["total"], "recibido": d["recibido"], "velocidad": d["velocidad"],
+                 "restante": VentanaTorrents._tiempo_restante(d) or "", "error": d["error"]}
+                for d in self.ventana.torrents_estado]
 
     # --- Acciones ---------------------------------------------------------------------
 
@@ -894,6 +916,18 @@ class _Control:
             self.ventana.filtro = ("todos", None)
         self.ventana.cargar_filtros()
 
+    def accion_categoria_vista(self, id, visto):
+        self._nombre_categoria(int(id))
+        rutas = [r for _a, r, _n, tipo in self.bib.listar_archivos("categoria", int(id)) if tipo == "video"]
+        if not rutas:
+            raise ErrorRemoto("Esa categoría no tiene videos")
+        self.ventana._marcar_vistos(rutas, bool(visto))
+
+    def accion_categoria_pendiente(self, id):
+        """Saca (o vuelve a poner) el amarillo de «por ver», sin marcarla vista."""
+        self._nombre_categoria(int(id))
+        self.ventana._alternar_pendiente(int(id))
+
     def _nombre_categoria(self, cid: int) -> str:
         nombre = next((n for c, n, _ in self.bib.listar_categorias() if c == cid), None)
         if nombre is None:
@@ -930,6 +964,11 @@ class _Control:
             raise ErrorRemoto("Sitio desconocido")
         QDesktopServices.openUrl(QUrl(SITIOS[sitio]))
 
+    def accion_mostrar_celular(self):
+        """Pantalla del celular en la PC: Windows la recibe por Miracast («Proyectar en este equipo»)."""
+        QDesktopServices.openUrl(QUrl("ms-settings:project"))
+        return {"aviso": "En la PC se abrió «Proyectar en este equipo»"}
+
     def accion_mover_descargas(self, activo):
         self.bib.guardar_config("mover_descargas", "1" if activo else "0")
         self.ventana.vigilante.despertar()
@@ -965,6 +1004,34 @@ class _Control:
         self.ventana.gestor.cola_cambiada.emit()
         aviso = f"{len(borrables)} película(s) enviada(s) a la Papelera"
         return {"aviso": aviso + (". No se pudieron mover: " + ", ".join(fallidos) if fallidos else "")}
+
+    # Torrents: el celular manda el link magnet y baja la PC
+
+    def accion_torrent_agregar(self, enlace):
+        enlace = str(enlace).strip()
+        # Solo links magnet: una ruta a un .torrent sería un archivo de la PC
+        if not enlace.lower().startswith("magnet:?"):
+            raise ErrorRemoto("Pegá un link magnet (empieza con «magnet:?»)")
+        try:
+            self.ventana.torrents.agregar(enlace)
+        except ErrorTorrent as e:
+            raise ErrorRemoto(str(e), 409) from e
+        return {"aviso": "Descarga empezada en la PC: aparece en la lista en unos segundos"}
+
+    def _torrent(self, accion, gid):
+        try:
+            accion(str(gid))
+        except ErrorTorrent as e:
+            raise ErrorRemoto(str(e), 409) from e
+
+    def accion_torrent_pausar(self, gid):
+        self._torrent(self.ventana.torrents.pausar, gid)
+
+    def accion_torrent_reanudar(self, gid):
+        self._torrent(self.ventana.torrents.reanudar, gid)
+
+    def accion_torrent_cancelar(self, gid):
+        self._torrent(self.ventana.torrents.cancelar, gid)
 
     def accion_dp_auto(self, activa=None, max_peliculas=None, max_gb=None):
         for clave, valor in (("auto_activa", None if activa is None else ("1" if activa else "0")),
