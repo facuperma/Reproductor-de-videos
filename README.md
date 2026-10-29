@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.5.9.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.9.exe)** (33 MB)
+**[⬇ TVon-Setup-1.6.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.6.0.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -53,13 +53,19 @@ Botón **📱 ON** en la barra superior (o *Configuración → ON*; se pone verd
 - **Mouse:** el celular como touchpad, sin mirar la pantalla (ideal con la PC conectada a la tele): deslizar = mover el puntero, tocar = clic, tocar con dos dedos = clic derecho, deslizar con dos dedos = rueda. Botones **Izquierdo** y **Derecho** (manteniendo el izquierdo y deslizando se arrastra; 🔒 lo deja apretado) y velocidad ajustable.
 - **Teclado en vivo:** lo que escribís en el celular aparece en la PC letra por letra, con tildes, ñ, emojis y el autocorrector de Android. También hay modo *Escribir y enviar* y teclas especiales (Enter, Esc, flechas, Alt+Tab, Win, Ctrl+C/V, volumen…).
 - **Pantalla:** si hace falta, ves la pantalla de la PC en el celular y la manejás con el dedo: tocar = clic, dos toques = doble clic, mantener = clic derecho, deslizar = rueda, o el modo *Arrastrar*. Con teclado, teclas especiales (Enter, Esc, flechas, Alt+Tab…) y volumen de Windows. Calidad *Fluida* (25 cuadros por segundo), *Normal* (15) o *Nítida* (10); solo se muestran cuadros completos, sin cortes. Mientras el celular mira la pantalla, TVon lo avisa abajo con un botón para cortar.
-- **Celular → PC (sin Miracast):** ves el celular (Android) en una ventana de la PC y lo manejás con el mouse y el teclado, por la misma wifi o por cable, con [scrcpy](https://github.com/Genymobile/scrcpy) (viene incluido). Una sola vez: activar *Depuración USB* en las Opciones de desarrollador del celular. La primera vez se conecta por cable (tocás *Permitir* en el celular) y después sigue por wifi hasta que reinicies el celular; con Android 11+ también se puede vincular sin cable nunca (*Depuración inalámbrica*). Desde el celular: pestaña **Pantalla** → *Ver este celular en la PC*; en la PC: *Archivo → Pantalla del celular en la PC*.
+- **Celular → PC:** para ver la pantalla del celular en la PC (o la tele), TVon abre *Proyectar en este equipo* de Windows y el celular transmite con *Transmitir / Smart View* (Miracast). El navegador del celular no puede compartir su pantalla, por eso se usa lo de Windows.
 
 **Siempre conectado:** si cerrás la ventana de TVon con ON encendido, TVon queda junto al reloj y el celular sigue manejando el mouse y el teclado; para salir del todo, *Archivo → Salir* o el ícono junto al reloj. Con **Arrancar TVon con Windows** (en la ventana de ON o en *Más* del celular) arranca escondido y con ON encendido, así el celular siempre encuentra la PC. Desde el celular (*Más* o el aviso de arriba) se abre o esconde TVon en la PC. Si TVon ya está abierto, abrirlo de nuevo solo lo trae al frente.
 
 **Acceso rápido en el celular:** en Chrome, menú ⋮ → *Agregar a la pantalla principal*: queda el ícono de TVon y abre directo la app.
 
-Seguridad: el QR lleva un código de emparejamiento; cada celular recibe su propia sesión y se puede desconectar desde la PC (*Desconectar todos*, *Cambiar el código QR*). Compartir la pantalla y manejar el mouse y el teclado se pueden apagar en las opciones de ON. La conexión es solo dentro de la red local y sin cifrar: usalo en tu wifi de casa, no en redes públicas. La primera vez, Windows pregunta por el firewall: hay que tocar **Permitir**.
+### 🔒 Seguridad
+
+- **Conexión cifrada:** el celular y la PC hablan por **HTTPS** (TLS 1.2 o 1.3) con un certificado propio de TVon. La primera vez Chrome avisa «La conexión no es privada» porque no conoce ese certificado: *Configuración avanzada → Continuar*. Para comprobar que es tu PC, la huella del certificado (candado → certificado) tiene que coincidir con la que muestra la ventana de ON.
+- **Quién entra:** solo desde la red de tu casa o por Tailscale; desde internet se rechaza. El código del QR sirve **una sola vez** y cambia cada vez que se enciende ON; con 10 códigos equivocados se frena 10 minutos. Cada celular tiene su propia sesión (cookie *Secure*, *HttpOnly*, *SameSite=Strict*) y se puede desconectar desde la PC (*Desconectar todos*, *Cambiar el código QR*). Otras páginas no pueden mandar órdenes a TVon (protección contra CSRF y *DNS rebinding*).
+- **Datos guardados:** las claves (OpenSubtitles, el código del QR, la clave del certificado) se guardan **cifradas con DPAPI de Windows**: solo tu usuario en tu PC puede leerlas. De los celulares se guarda solo una huella (SHA-256), nunca la sesión.
+- **Internet:** todo va por HTTPS con el certificado del sitio verificado; TVon no sigue redirecciones a direcciones sin cifrar. Los torrents van con el tráfico cifrado entre pares (puede haber menos fuentes; los demás que comparten igual ven tu IP).
+- Compartir la pantalla y manejar el mouse y el teclado se pueden apagar en las opciones de ON. La primera vez, Windows pregunta por el firewall: permitilo solo en **redes privadas**.
 
 **Fuera de casa:** con [Tailscale](https://tailscale.com/download) (gratis) instalado en la PC y en el celular con la misma cuenta, en la ventana de ON aparece *🌍 Usarlo fuera de casa* con otro código QR. Así TVon se maneja desde cualquier lado por una conexión cifrada, sin abrir puertos en el router. Si no conecta, permití TVon también en redes públicas en el Firewall de Windows.
 
@@ -162,7 +168,5 @@ Marcá **⏻ Apagar** en los controles: cuando termine el video (en el visor o e
 ## Licencia
 
 Código abierto bajo la [licencia MIT](LICENSE). © 2026 Faierwall.
-
-Incluye [scrcpy](https://github.com/Genymobile/scrcpy) 5.0.1 (con su adb) sin modificar, bajo la licencia Apache 2.0 (`organizador\bin\scrcpy\LICENSE.txt`).
 
 Incluye [aria2](https://github.com/aria2/aria2) 1.37.0 sin modificar, como programa aparte, bajo la licencia GPL v2 (`organizador\bin\aria2-LICENCIA.txt`). Su código fuente está en github.com/aria2/aria2.

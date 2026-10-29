@@ -66,6 +66,11 @@ class Aria2:
             # Al terminar suelta los archivos (no sigue compartiendo) para poder moverlos
             "--seed-time=0", "--follow-torrent=mem", "--max-concurrent-downloads=3",
             "--file-allocation=falloc", "--quiet=true",
+            # Seguridad: el control de aria2 solo desde esta PC (con su clave), certificados siempre
+            # verificados y el tráfico con los demás cifrado (le cuesta más al proveedor de internet
+            # ver qué se baja; los demás que comparten el torrent igual ven la IP)
+            "--rpc-listen-all=false", "--check-certificate=true",
+            "--bt-require-crypto=true", "--bt-min-crypto-level=arc4",
             # Si TVon se cierra de golpe, aria2 también
             f"--stop-with-process={os.getpid()}",
         ]

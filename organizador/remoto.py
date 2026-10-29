@@ -12,6 +12,7 @@ import json
 import re
 import secrets
 import socket
+import ssl
 import threading
 import time
 from http.cookies import SimpleCookie
@@ -25,14 +26,13 @@ from PySide6.QtGui import QDesktopServices, QImage, QImageReader
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtWidgets import QApplication
 
-from . import archive, inicio_windows, pantalla_remota
+from . import archive, inicio_windows, pantalla_remota, seguridad
 from .db import CATEGORIA_FAVORITOS
 from .dominio_publico import (
     ESTADOS, cancelar_descargas, eliminar_peliculas, peliculas_borrables, quitar_descargas,
     reintentar_descargas,
 )
 from .subtitulos_online import buscar_para_visor
-from .celular_pantalla import ErrorCelular
 from .titulos import nombre_lindo
 from .torrents import ErrorTorrent
 from .visor import TAMANOS_SUB, texto_progreso
@@ -47,7 +47,9 @@ TIPOS = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
          ".css": "text/css; charset=utf-8", ".webmanifest": "application/manifest+json", ".png": "image/png"}
 # La página solo carga lo propio; la API no se puede incrustar en otros sitios
 SEGURIDAD = {"Content-Security-Policy": "default-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'",
-             "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
+             "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
+             "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Resource-Policy": "same-origin",
+             "Permissions-Policy": "camera=(), microphone=(), geolocation=()"}
 
 
 class ErrorRemoto(Exception):
@@ -137,7 +139,6 @@ class Remoto(QObject):
         self.servidor: ThreadingHTTPServer | None = None
         self.puerto = 0
         self.error = ""
-        self.ultima_ip: str | None = None  # del último celular que habló con TVon
         self._sesiones: dict[str, dict] = {}
         self._vistas: dict[str, float] = {}
         self._cerrojo = threading.Lock()
@@ -147,11 +148,16 @@ class Remoto(QObject):
         ventana.gestor.progreso.connect(self._progreso)
         # Copia en memoria de la configuración: el servidor la lee desde sus hilos y la base no se comparte
         self._config = {clave: self.bib.config(clave) for clave in ("on_codigo", "on_pantalla", "on_control", "on_activo")}
+        # Las sesiones se guardan por su huella (SHA-256): si alguien copia la base, no le sirven
         try:
             for s in json.loads(self.bib.config("on_sesiones") or "[]"):
-                self._sesiones[s["token"]] = s
+                if "token" in s:  # versiones anteriores guardaban la sesión tal cual
+                    s["huella"] = seguridad.huella_sesion(s.pop("token"))
+                self._sesiones[s["huella"]] = s
         except (ValueError, KeyError, TypeError):
             pass
+        self._fallidos: dict[str, list[float]] = {}  # intentos de emparejar con código equivocado, por IP
+        self.huella_certificado = ""
         if not self._config["on_codigo"]:
             self.cambiar_codigo()
 
@@ -196,7 +202,7 @@ class Remoto(QObject):
 
     @property
     def url(self) -> str:
-        return f"http://{ip_local()}:{self.puerto}/" if self.activo else ""
+        return f"https://{ip_local()}:{self.puerto}/" if self.activo else ""
 
     @property
     def url_emparejar(self) -> str:
@@ -205,12 +211,32 @@ class Remoto(QObject):
     def url_remota(self) -> str:
         """Dirección para fuera de casa, por Tailscale ("" si no está)."""
         ip = ip_tailscale() if self.activo else None
-        return f"http://{ip}:{self.puerto}/" if ip else ""
+        return f"https://{ip}:{self.puerto}/" if ip else ""
+
+    def _contexto_tls(self) -> ssl.SSLContext:
+        """HTTPS con el certificado propio de TVon (se crea la primera vez)."""
+        clave = self.bib.config("on_clave_cert")
+        if not clave:
+            clave = seguridad.clave_nueva()
+            self.bib.guardar_config("on_clave_cert", clave)
+        ips = [ip_local()] + ([ip] if (ip := ip_tailscale()) else [])
+        cert, archivo_clave, self.huella_certificado = seguridad.certificado(
+            Path(self.bib.ruta_db).parent, clave, ips)
+        contexto = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        contexto.minimum_version = ssl.TLSVersion.TLSv1_2
+        contexto.load_cert_chain(cert, archivo_clave, password=clave)
+        return contexto
 
     def iniciar(self) -> bool:
         if self.activo:
             return True
         self.error = ""
+        try:
+            contexto = self._contexto_tls()
+        except Exception as e:  # noqa: BLE001 - sin cifrado, ON no se enciende
+            self.error = f"No se pudo preparar la conexión cifrada: {e}"
+            self.estado_cambiado.emit()
+            return False
         for puerto in range(PUERTO, PUERTO + 10):
             try:
                 self.servidor = _Servidor(("0.0.0.0", puerto), _Manejador, self)
@@ -221,6 +247,11 @@ class Remoto(QObject):
             self.error = f"No hay un puerto libre entre {PUERTO} y {PUERTO + 9}"
             self.estado_cambiado.emit()
             return False
+        # El saludo TLS se hace en el hilo de cada pedido: un celular lento no traba al resto
+        self.servidor.socket = contexto.wrap_socket(self.servidor.socket, server_side=True,
+                                                    do_handshake_on_connect=False)
+        # Código nuevo cada vez que se enciende: un QR viejo (de una foto, por ejemplo) ya no sirve
+        self.cambiar_codigo()
         self.puerto = self.servidor.server_address[1]
         threading.Thread(target=self.servidor.serve_forever, daemon=True).start()
         self.estado_cambiado.emit()
@@ -237,29 +268,49 @@ class Remoto(QObject):
 
     # --- Sesiones ----------------------------------------------------------------------
 
-    def emparejar(self, codigo: str, agente: str) -> str | None:
-        """Si el código es el del QR, crea una sesión y devuelve su token."""
+    def demasiados_intentos(self, ip: str) -> bool:
+        """Más de 10 códigos equivocados en 10 minutos desde la misma IP: se frena (fuerza bruta)."""
+        ahora = time.time()
+        with self._cerrojo:
+            intentos = [t for t in self._fallidos.get(ip, []) if ahora - t < 600]
+            self._fallidos[ip] = intentos
+            return len(intentos) >= 10
+
+    def emparejar(self, codigo: str, agente: str, ip: str = "") -> str | None:
+        """Si el código es el del QR, crea una sesión y devuelve su token. El código sirve una
+        sola vez: después cambia (el QR que se ve en la PC se actualiza solo)."""
         if not secrets.compare_digest(codigo.encode(), self.codigo.encode()):
+            with self._cerrojo:
+                self._fallidos.setdefault(ip, []).append(time.time())
             return None
         token = secrets.token_urlsafe(32)
         nombre = nombre_dispositivo(agente)
+        huella = seguridad.huella_sesion(token)
         with self._cerrojo:
-            self._sesiones[token] = {"token": token, "nombre": nombre, "creada": time.strftime("%d/%m/%Y %H:%M")}
+            self._sesiones[huella] = {"huella": huella, "nombre": nombre, "creada": time.strftime("%d/%m/%Y %H:%M")}
         self._guardar_sesiones()
+        # La base es del hilo de la interfaz
+        if threading.current_thread() is threading.main_thread():
+            self.cambiar_codigo()
+        else:
+            self.puente.llamar(self.cambiar_codigo)
         self.celular_conectado.emit(nombre)
         self.estado_cambiado.emit()
         return token
 
     def sesion_valida(self, token: str | None) -> bool:
+        if not token:
+            return False
+        huella = seguridad.huella_sesion(token)
         with self._cerrojo:
-            if not token or token not in self._sesiones:
+            if huella not in self._sesiones:
                 return False
-            self._vistas[token] = time.time()
+            self._vistas[huella] = time.time()
             return True
 
     def cerrar_sesion(self, token: str):
         with self._cerrojo:
-            self._sesiones.pop(token, None)
+            self._sesiones.pop(seguridad.huella_sesion(token), None)
         self._guardar_sesiones()
         self.estado_cambiado.emit()
 
@@ -312,9 +363,16 @@ class _Servidor(ThreadingHTTPServer):
         self.remoto = remoto
         super().__init__(direccion, manejador)
 
+    def handle_error(self, pedido, direccion):
+        # Saludos TLS rechazados (HTTP sin cifrar, TLS viejo) o conexiones cortadas: no son errores
+        # de TVon y no hay consola donde escribirlos (pythonw)
+        pass
+
 
 class _Manejador(BaseHTTPRequestHandler):
     server: _Servidor
+    # Una conexión que no manda nada en un minuto se corta (no deja hilos colgados)
+    timeout = 60
     server_version = "TVon"
     sys_version = ""
 
@@ -372,6 +430,11 @@ class _Manejador(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         consulta = {k: v[-1] for k, v in parse_qs(url.query).items()}
         try:
+            # Solo desde la casa (red privada) o Tailscale, y entrando por la IP de la PC
+            if not seguridad.ip_permitida(self.client_address[0]):
+                raise ErrorRemoto("Solo se puede entrar desde la red de tu casa o por Tailscale", 403)
+            if not seguridad.host_permitido(self.headers.get("Host", "")):
+                raise ErrorRemoto("Entrá con la dirección que muestra TVon (botón ON)", 403)
             rutas(url.path, consulta)
         except ErrorRemoto as e:
             self._error(str(e), e.codigo)
@@ -381,9 +444,12 @@ class _Manejador(BaseHTTPRequestHandler):
             self._error(f"Dato inválido: {e}", 400)
         except (ConnectionError, TimeoutError):
             pass  # el celular cortó
-        except Exception as e:  # noqa: BLE001 - un error no debe tirar el servidor
+        except (ssl.SSLError, OSError):
+            pass  # saludo TLS fallido o conexión cortada: no hay a quién responderle
+        except Exception:  # noqa: BLE001 - un error no debe tirar el servidor
             try:
-                self._error(f"Error en TVon: {e}", 500)
+                # Sin detalles internos en la respuesta (no se le dan pistas a nadie)
+                self._error("Error interno en TVon", 500)
             except OSError:
                 pass
 
@@ -432,7 +498,7 @@ class _Manejador(BaseHTTPRequestHandler):
             self._json({})
         elif ruta == "/api/salir":
             self.remoto.cerrar_sesion(token)
-            self._json({}, cabeceras={"Set-Cookie": f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict"})
+            self._json({}, cabeceras={"Set-Cookie": f"{COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"})
         else:
             raise ErrorRemoto("No existe", 404)
 
@@ -440,18 +506,20 @@ class _Manejador(BaseHTTPRequestHandler):
         token = self._token()
         if not self.remoto.sesion_valida(token):
             raise ErrorRemoto("Este celular no está conectado: escaneá el código QR de TVon (botón ON)", 401)
-        # Para ver la pantalla del celular en la PC sin cable (scrcpy se conecta a esta IP)
-        self.remoto.ultima_ip = self.client_address[0]
         return token
 
     def _emparejar(self):
+        ip = self.client_address[0]
+        if self.remoto.demasiados_intentos(ip):
+            raise ErrorRemoto("Demasiados códigos equivocados: esperá 10 minutos", 429)
         datos = self._cuerpo()
-        token = self.remoto.emparejar(str(datos.get("codigo", "")), self.headers.get("User-Agent", ""))
+        token = self.remoto.emparejar(str(datos.get("codigo", ""))[:100], self.headers.get("User-Agent", "")[:300], ip)
         if token is None:
-            raise ErrorRemoto("El código no es válido: escaneá de nuevo el QR que muestra TVon (botón ON)", 403)
+            raise ErrorRemoto("El código no es válido o ya se usó: escaneá el QR que muestra TVon ahora (botón ON)", 403)
         un_anio = 365 * 24 * 3600
+        # Secure: la sesión solo viaja cifrada (HTTPS)
         self._json({"ok": True}, cabeceras={
-            "Set-Cookie": f"{COOKIE}={token}; Max-Age={un_anio}; Path=/; HttpOnly; SameSite=Strict"})
+            "Set-Cookie": f"{COOKIE}={token}; Max-Age={un_anio}; Path=/; Secure; HttpOnly; SameSite=Strict"})
 
     def _estatico(self, ruta: str):
         if ruta in ("/", ""):
@@ -670,7 +738,6 @@ class _Control:
             "apagado": {"segundos": max(0, apagado[1][0])} if apagado else None,
             "pantalla_completa": ventana.isFullScreen(),
             "ventana_visible": not ventana.isHidden(),
-            "celular_en_pc": ventana.pantalla_celular.ultimo,
             "arranca_con_windows": inicio_windows.activo(),
             "ventanas": len(ventana.ventanas_video),
             "mover_descargas": self.bib.config("mover_descargas") == "1",
@@ -1011,12 +1078,9 @@ class _Control:
         QDesktopServices.openUrl(QUrl(SITIOS[sitio]))
 
     def accion_mostrar_celular(self):
-        """Pantalla del celular en la PC con scrcpy, por la red (la IP de este celular) o por cable."""
-        try:
-            self.ventana.pantalla_celular.mostrar(self.remoto.ultima_ip)
-        except ErrorCelular as e:
-            raise ErrorRemoto(str(e), 409) from e
-        return {"aviso": "Conectando… en unos segundos el celular aparece en la PC"}
+        """Pantalla del celular en la PC: Windows la recibe por Miracast («Proyectar en este equipo»)."""
+        QDesktopServices.openUrl(QUrl("ms-settings:project"))
+        return {"aviso": "En la PC se abrió «Proyectar en este equipo»"}
 
     def accion_mover_descargas(self, activo):
         self.bib.guardar_config("mover_descargas", "1" if activo else "0")

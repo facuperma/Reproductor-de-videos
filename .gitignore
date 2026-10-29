@@ -6,3 +6,5 @@ compilado/
 organizador/bin/
 torrents.dht
 torrents.sesion
+on_certificado.pem
+on_clave.pem

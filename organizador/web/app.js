@@ -187,7 +187,6 @@ function mostrarEstado() {
   $("#pc-estado").textContent = e.ventana_visible === false
     ? "TVon está escondido junto al reloj de la PC." : "TVon está abierto en la PC.";
   if (document.activeElement !== $("#chk-windows")) $("#chk-windows").checked = !!e.arranca_con_windows;
-  $("#celular-en-pc").textContent = e.celular_en_pc || "";
   if (e.siguiente) {
     $("#siguiente-texto").textContent = e.siguiente.texto;
     $("#siguiente-nombre").textContent = e.siguiente.nombre;

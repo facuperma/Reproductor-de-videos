@@ -1,12 +1,36 @@
-"""Utilidades HTTP comunes (sin dependencias externas)."""
+"""Utilidades HTTP comunes (sin dependencias externas).
+
+Todo lo que TVon pide a internet pasa por acá: solo HTTPS, con el certificado del sitio
+verificado, TLS 1.2 o más nuevo, y sin seguir redirecciones que lleven a HTTP sin cifrar.
+"""
 import json
+import ssl
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlparse
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 AGENTE = "TVon v1.0"
 REINTENTOS = 3
+
+_CONTEXTO = ssl.create_default_context()  # verifica el certificado y el nombre del sitio
+_CONTEXTO.minimum_version = ssl.TLSVersion.TLSv1_2
+
+
+class _SoloHttps(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, nueva):
+        if urlparse(nueva).scheme != "https":
+            raise URLError(f"el sitio quiso redirigir a una dirección sin cifrar ({nueva})")
+        return super().redirect_request(req, fp, code, msg, headers, nueva)
+
+
+_ABRIDOR = build_opener(HTTPSHandler(context=_CONTEXTO), _SoloHttps)
+
+
+def urlopen(req: Request, timeout: int):
+    if urlparse(req.full_url).scheme != "https":
+        raise URLError("solo se usan conexiones cifradas (https)")
+    return _ABRIDOR.open(req, timeout=timeout)
 
 
 class ErrorRed(Exception):

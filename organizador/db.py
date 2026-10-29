@@ -5,6 +5,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths
 
+from . import seguridad
+
 EXT_VIDEO = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".m4v", ".flv", ".mpg", ".mpeg"}
 EXT_IMAGEN = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"}
 
@@ -50,6 +52,9 @@ CONFIG_DEFECTO = {
     "auto_max_peliculas": "20",
     "auto_max_gb": "50",
 }
+
+# Se guardan cifrados (seguridad.proteger): claves de OpenSubtitles y de ON
+SECRETOS = {"os_api_key", "os_usuario", "os_clave", "on_codigo", "on_clave_cert", "on_sesiones"}
 
 CATEGORIA_DOMINIO_PUBLICO = "Dominio público"
 # Un video cuenta como visto al pasar este punto (los créditos no hace falta verlos)
@@ -123,14 +128,23 @@ class Biblioteca:
         )
         self.con.commit()
         self.favoritos = self.categoria_id(CATEGORIA_FAVORITOS)
+        # Las claves que quedaron guardadas sin cifrar (versiones anteriores) se cifran ahora
+        for clave in SECRETOS:
+            fila = self.con.execute("SELECT valor FROM config WHERE clave = ?", (clave,)).fetchone()
+            if fila and fila[0] and not fila[0].startswith(seguridad.PREFIJO):
+                self.guardar_config(clave, fila[0])
 
     # --- Configuración ------------------------------------------------------
 
     def config(self, clave: str) -> str:
         fila = self.con.execute("SELECT valor FROM config WHERE clave = ?", (clave,)).fetchone()
-        return fila[0] if fila and fila[0] is not None else CONFIG_DEFECTO.get(clave, "")
+        if not fila or fila[0] is None:
+            return CONFIG_DEFECTO.get(clave, "")
+        return seguridad.desproteger(fila[0]) if clave in SECRETOS else fila[0]
 
     def guardar_config(self, clave: str, valor: str) -> None:
+        if clave in SECRETOS:
+            valor = seguridad.proteger(valor)  # cifrado con DPAPI: solo este usuario en esta PC
         self.con.execute("INSERT OR REPLACE INTO config VALUES (?, ?)", (clave, valor))
         self.con.commit()
 

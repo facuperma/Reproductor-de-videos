@@ -52,28 +52,6 @@ def bajar_aria2():
                 (BIN / "aria2-LICENCIA.txt").write_bytes(z.read(nombre))
 
 
-# Pantalla del celular en la PC (Apache 2.0, https://github.com/Genymobile/scrcpy), con su adb
-SCRCPY_URL = "https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-win64-v5.0.1.zip"
-SCRCPY_SHA256 = "b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5"
-
-
-def bajar_scrcpy():
-    destino = BIN / "scrcpy"
-    if (destino / "scrcpy.exe").exists():
-        return
-    print("== Bajando scrcpy")
-    datos = urlopen(SCRCPY_URL, timeout=120).read()
-    if hashlib.sha256(datos).hexdigest() != SCRCPY_SHA256:
-        sys.exit("La huella de scrcpy no coincide: no se usa")
-    destino.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(datos)) as z:
-        for nombre in z.namelist():
-            archivo = nombre.split("/", 1)[-1]  # sin la carpeta «scrcpy-win64-vX»
-            # Solo lo que usa TVon (sin los .bat/.vbs de ejemplo)
-            if archivo and not nombre.endswith("/") and not archivo.endswith((".bat", ".vbs")):
-                (destino / archivo).write_bytes(z.read(nombre))
-
-
 def version() -> str:
     return re.search(r'VERSION = "(.+?)"', (RAIZ / "main.py").read_text(encoding="utf-8")).group(1)
 
@@ -95,7 +73,6 @@ def main():
     print("== Ícono")
     subprocess.run([sys.executable, str(RAIZ / "empaquetado" / "generar_icono.py")], check=True)
     bajar_aria2()
-    bajar_scrcpy()
     print(f"== TVon {v}: ejecutable")
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", "TVon",

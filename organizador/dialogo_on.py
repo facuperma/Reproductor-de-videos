@@ -51,8 +51,14 @@ class DialogoOn(QDialog):
         self.lbl_pasos.setText(
             "1. Conectá el celular a la misma red wifi que esta PC.<br>"
             "2. Escaneá el código con la cámara (o Google Lens) y abrí el enlace en Chrome.<br>"
-            "3. Para tenerlo como app: en Chrome, menú ⋮ → <b>Agregar a la pantalla principal</b>.<br>"
-            "La primera vez, si Windows pregunta por el firewall, tocá <b>Permitir</b>.")
+            "3. La conexión va <b>cifrada (HTTPS)</b> con un certificado propio de TVon. La primera vez Chrome "
+            "avisa «La conexión no es privada» porque no lo conoce: tocá <b>Configuración avanzada → "
+            "Continuar</b>. Para comprobar que es tu PC, la huella del certificado (candado → certificado) "
+            "tiene que empezar igual que la de abajo.<br>"
+            "4. Para tenerlo como app: en Chrome, menú ⋮ → <b>Agregar a la pantalla principal</b>.<br>"
+            "El código del QR sirve una sola vez. La primera vez, si Windows pregunta por el firewall, "
+            "tocá <b>Permitir</b> (solo en redes privadas).")
+        self.lbl_huella = QLabel(wordWrap=True, objectName="pista", textInteractionFlags=Qt.TextSelectableByMouse)
         self.btn_remoto = QPushButton(checkable=True)
         self.btn_remoto.toggled.connect(self._mostrar)
         self.lbl_remoto = QLabel(wordWrap=True, objectName="pista", openExternalLinks=True)
@@ -101,6 +107,7 @@ class DialogoOn(QDialog):
         capa.addWidget(self.lbl_qr)
         capa.addWidget(self.lbl_url)
         capa.addWidget(self.lbl_pasos)
+        capa.addWidget(self.lbl_huella)
         capa.addWidget(self.btn_remoto)
         capa.addWidget(self.lbl_remoto)
         capa.addWidget(grupo_opciones)
@@ -137,6 +144,8 @@ class DialogoOn(QDialog):
         self.lbl_qr.setVisible(activo)
         self.lbl_url.setVisible(activo)
         self.lbl_pasos.setVisible(activo)
+        self.lbl_huella.setVisible(activo)
+        self.lbl_huella.setText(f"🔒 Huella del certificado (SHA-256): <b>{self.remoto.huella_certificado}</b>")
         self.btn_remoto.setVisible(activo)
         self.lbl_remoto.setVisible(activo)
         if activo:
@@ -164,7 +173,8 @@ class DialogoOn(QDialog):
                 "style='color:#9fc2ff'>Tailscale</a> (gratis): una red privada y cifrada entre tus dispositivos.<br>"
                 "1. Instalalo en esta PC y en el celular (Play Store) y entrá con la misma cuenta en los dos.<br>"
                 "2. Volvé a abrir esta ventana: aparece el código para fuera de casa.<br>"
-                "No abras el puerto de TVon en el router: la conexión no está cifrada.")
+                "No abras el puerto de TVon en el router: TVon rechaza conexiones que no vengan de tu casa "
+                "o de Tailscale.")
         elif self.remoto.error:
             self.lbl_estado.setText(f"<span style='color:#ff8080'>No se pudo encender: {self.remoto.error}</span>")
         else:
