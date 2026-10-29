@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.5.3.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.3.exe)** (33 MB)
+**[⬇ TVon-Setup-1.5.4.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.4.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -35,7 +35,7 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 - La categoría **★ Favoritos** viene incluida y siempre está primera: sumá archivos con clic derecho → *Agregar a Favoritos*.
 - Un clic en un video muestra una **vista previa** (un cuadro del video, sin sonido): se reproduce con clic sobre la imagen, ▶ o Espacio, siempre desde el principio.
 - Al elegir una categoría se selecciona su primer video en vista previa, sin empezar a reproducirse.
-- Columnas de la lista (**Nombre**, **Visto**, **Carpeta**): se achican, agrandan y mueven arrastrando; clic derecho en la cabecera para ocultar o mostrar cada una. TVon recuerda cómo las dejaste. La carpeta es un vínculo: tocarla abre el Explorador con el video marcado.
+- Columnas de la lista (**Nombre** y **Carpeta**): se achican, agrandan y mueven arrastrando; clic derecho en la cabecera para ocultar o mostrar cada una. TVon recuerda cómo las dejaste. La carpeta es un vínculo: tocarla abre el Explorador con el video marcado.
 - Volumen: el porcentaje se ve al lado de la barra y, al moverlo, grande sobre el video. TVon arranca al 50 %.
 - Menú superior: **Archivo**, **Vista** (ocultar paneles, pantalla completa), **Configuración**, **Acerca de** (versión) y **Reportar un bug** (abre un issue en GitHub con la versión ya completa).
 - Botones **🌐 Películas** ([ext.to](https://ext.to/)) y **🌐 Subtítulos** ([subdivx.com](https://subdivx.com/)) en la barra superior: abren esas páginas en el navegador. Lo que descargues ahí termina en Descargas y TVon lo mueve solo a Videos.
@@ -104,10 +104,10 @@ Botón **🎞 Dominio público** en la barra superior: busca en la colección de
 ### Vistos y dónde quedaste
 
 - TVon recuerda hasta dónde viste cada video: al volver a abrirlo sigue desde ahí (la tecla **Inicio** lo arranca desde el principio).
-- Un video cuenta como **visto** al pasar el 90 % (los créditos no hace falta verlos). La columna **Visto** muestra ✓ o cuánto llevás («33 % · 5:00»).
+- Un video cuenta como **visto** al pasar el 90 % (los créditos no hace falta verlos). Como las categorías, el nombre va en **verde** si ya lo viste y en **amarillo** si falta verlo o quedó a medias; cuánto llevás («Vas por 33 % · 5:00») aparece al pasar el mouse.
 - Con algo ya visto, la lista se separa en **Sin ver** y **✓ Vistas**, En **Biblioteca y categorías**, las que tienen algo por ver se ven en amarillo y las que ya viste completas pasan al grupo desplegable **✓ Vistas**, en verde claro (clic en la cabecera para desplegarlo u ocultarlo). Clic derecho en una categoría: **Marcar como vista / no vista** (todos sus videos) o **Quitar el amarillo de pendiente** sin marcarla vista. Clic en la cabecera de un grupo lo oculta o lo muestra (▸ / ▾); con clic derecho, **Vistas** pasa arriba o abajo. TVon lo recuerda.
 - En una serie, al elegir su categoría queda listo el capítulo que dejaste a medias o, si no, el primero sin ver.
-- Clic derecho → **Marcar como visto / no visto** para corregirlo a mano. En el celular también aparece el ✓ o el % en la biblioteca.
+- Clic derecho → **Marcar como visto / no visto** para corregirlo a mano. En el celular los nombres van con los mismos colores, y en los que quedaron a medias dice por dónde vas.
 
 ### Cola de reproducción
 

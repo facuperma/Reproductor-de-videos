@@ -37,6 +37,8 @@ from .visor import REPRODUCIR, VISTA_PREVIA, Visor, atajos_reproductor, texto_pr
 ROL = Qt.UserRole
 # En las cabeceras «Sin ver» / «Vistas» de la lista: qué grupo es
 ROL_GRUPO = Qt.UserRole + 1
+# En los videos de la lista: si ya se vio (para saber cuándo cambiarlo de grupo)
+ROL_VISTO = Qt.UserRole + 2
 # Categorías en la columna izquierda: lo que queda por ver y lo ya visto
 COLOR_PENDIENTE = QColor("#facc15")
 COLOR_VISTA = QColor("#86efac")
@@ -53,6 +55,8 @@ AUTOR = "Faierwall"
 
 
 class Ventana(QMainWindow):
+    COLUMNA_CARPETA = 1
+
     def __init__(self, biblioteca: Biblioteca):
         super().__init__()
         self.bib = biblioteca
@@ -118,7 +122,8 @@ class Ventana(QMainWindow):
 
         # --- Columna central: archivos --------------------------------------
         self.lista = QTreeWidget()
-        self.lista.setHeaderLabels(["Nombre", "Visto", "Carpeta"])
+        # Lo visto no lleva columna: el nombre va en verde (visto) o amarillo (por ver)
+        self.lista.setHeaderLabels(["Nombre", "Carpeta"])
         self.lista.setRootIsDecorated(False)
         self.lista.setUniformRowHeights(True)
         # Arrastrar con el mouse (o Ctrl/Shift + clic) selecciona varios archivos
@@ -128,9 +133,9 @@ class Ventana(QMainWindow):
         cabecera = self.lista.header()
         cabecera.setSectionResizeMode(QHeaderView.Interactive)
         cabecera.setMinimumSectionSize(30)
-        cabecera.resizeSection(0, 260)
-        cabecera.resizeSection(1, 110)
-        if guardado := self.bib.config("columnas_archivos"):
+        cabecera.resizeSection(0, 300)
+        # «columnas_archivos» era de cuando había tres columnas: no se usa
+        if guardado := self.bib.config("columnas_lista"):
             cabecera.restoreState(QByteArray.fromBase64(guardado.encode()))
         cabecera.setContextMenuPolicy(Qt.CustomContextMenu)
         cabecera.customContextMenuRequested.connect(self._menu_columnas)
@@ -563,18 +568,22 @@ class Ventana(QMainWindow):
                 cabecera.setFirstColumnSpanned(True)
             for aid, ruta, nombre, tipo in grupo:
                 carpeta = str(Path(ruta).parent)
-                item = QTreeWidgetItem([nombre, texto_progreso(progresos.get(ruta)), carpeta])
+                columna = self.COLUMNA_CARPETA
+                item = QTreeWidgetItem([nombre, carpeta])
                 item.setIcon(0, icono_video if tipo == "video" else icono_imagen)
                 item.setData(0, ROL, (aid, ruta, tipo))
-                item.setToolTip(0, ruta)
-                item.setToolTip(2, "Abrir la carpeta en el Explorador")
+                item.setToolTip(columna, "Abrir la carpeta en el Explorador")
                 if not Path(ruta).exists():
                     item.setForeground(0, gris)
-                    item.setText(2, f"{carpeta}  (no encontrado)")
-                    item.setToolTip(2, ruta)
+                    item.setText(columna, f"{carpeta}  (no encontrado)")
+                    item.setToolTip(columna, ruta)
                 else:
-                    item.setForeground(2, color_vinculo)
-                    item.setFont(2, fuente_vinculo)
+                    item.setForeground(columna, color_vinculo)
+                    item.setFont(columna, fuente_vinculo)
+                    if tipo == "video":
+                        self._pintar_visto(item, progresos.get(ruta))
+                if not item.toolTip(0):
+                    item.setToolTip(0, ruta)
                 self.lista.addTopLevelItem(item)
                 item.setHidden(plegado)
                 if aid == id_actual:
@@ -656,10 +665,9 @@ class Ventana(QMainWindow):
             menu.addAction("Poner «Vistas» abajo" if arriba else "Poner «Vistas» arriba", self._mover_vistas)
         menu.exec(self.lista.viewport().mapToGlobal(pos))
 
-    COLUMNA_CARPETA = 2
 
     def _guardar_columnas(self, *_):
-        self.bib.guardar_config("columnas_archivos",
+        self.bib.guardar_config("columnas_lista",
                                 bytes(self.lista.header().saveState().toBase64()).decode())
 
     def _menu_columnas(self, pos):
@@ -721,17 +729,26 @@ class Ventana(QMainWindow):
         self.bib.guardar_progreso(ruta, posicion_ms, duracion_ms)
         self._refrescar_progreso(ruta)
 
+    def _pintar_visto(self, item: QTreeWidgetItem, progreso):
+        """Como las categorías: verde si ya se vio, amarillo si falta verlo (o quedó a medias).
+        Cuánto se vio va en el cartelito del nombre."""
+        visto = bool(progreso and progreso[2])
+        item.setData(0, ROL_VISTO, visto)
+        item.setForeground(0, COLOR_VISTA if visto else COLOR_PENDIENTE)
+        detalle = "✓ Visto" if visto else (f"Vas por {texto}" if (texto := texto_progreso(progreso)) else "Sin ver")
+        item.setToolTip(0, f"{item.data(0, ROL)[1]}\n{detalle}")
+
     def _refrescar_progreso(self, ruta: str, *_):
-        """Actualiza la columna «Visto» de ese video; si pasó a visto, lo cambia de sección."""
+        """Actualiza el color de ese video; si pasó a visto, lo cambia de sección."""
         item = next((it for it in self._items() if it.data(0, ROL)[1] == ruta), None)
-        if item is None:
+        if item is None or not Path(ruta).exists():
             return
-        texto = texto_progreso(self.bib.progresos().get(ruta))
-        if texto.startswith("✓") != item.text(1).startswith("✓"):
+        progreso = self.bib.progresos().get(ruta)
+        if bool(progreso and progreso[2]) != bool(item.data(0, ROL_VISTO)):
             self._cargar_archivos()
             self._actualizar_conteos()
         else:
-            item.setText(1, texto)
+            self._pintar_visto(item, progreso)
 
     def _marcar_vistos(self, rutas: list[str], visto: bool):
         self.bib.marcar_vistos(rutas, visto)

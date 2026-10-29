@@ -583,11 +583,10 @@ function itemArchivo(a) {
     e.textContent = "★";
     li.append(e);
   }
-  if (a.visto) {
-    const v = document.createElement("span");
-    v.className = a.visto === "✓" ? "visto listo" : "visto";
-    v.textContent = a.visto;
-    li.append(v);
+  // Como en la PC: el nombre en verde si ya se vio, amarillo si falta verlo (o quedó a medias)
+  if (a.tipo === "video" && a.existe) {
+    li.classList.add(a.visto === "✓" ? "es-visto" : "es-pendiente");
+    if (a.visto && a.visto !== "✓") li.querySelector(".item-sub").textContent = `Vas por ${a.visto} · ${a.carpeta}`;
   }
   li.addEventListener("click", () => app.eligiendo ? alternarSeleccion(a.id, li) : menuArchivo(a));
   alMantener(li, () => { if (!app.eligiendo) { app.eligiendo = true; alternarSeleccion(a.id, li); } });

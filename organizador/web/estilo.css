@@ -216,6 +216,8 @@ input[type=range] { accent-color: var(--acento); height: 28px; }
 .grupo-vistas summary::after { content: none !important; }
 .grupo-vistas summary::before { content: "▸ "; }
 .grupo-vistas[open] summary::before { content: "▾ "; }
+.es-visto .item-nombre { color: #86efac; }
+.es-pendiente .item-nombre { color: #facc15; }
 .grupo-fav { list-style: none; }
 .grupo-fav summary {
   cursor: pointer; font-weight: 600; padding: 10px 12px; border-radius: 10px;
