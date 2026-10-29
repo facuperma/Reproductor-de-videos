@@ -36,6 +36,11 @@ def _leer_texto(ruta: Path) -> str:
     return datos.decode("latin-1")
 
 
+def leer_texto(ruta: Path) -> str:
+    """El texto del subtítulo, adivinando la codificación (UTF-8 o Windows-1252)."""
+    return _leer_texto(Path(ruta))
+
+
 class Subtitulos:
     def __init__(self, ruta: str | Path):
         texto = _leer_texto(Path(ruta)).replace("\r\n", "\n").replace("\r", "\n")

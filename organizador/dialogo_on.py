@@ -50,6 +50,9 @@ class DialogoOn(QDialog):
         self.lbl_pasos = QLabel(wordWrap=True, objectName="pista")
         self.lbl_pasos.setText(
             "1. Conectá el celular a la misma red wifi que esta PC.<br>"
+            "<b>Con la app TVon ON (Android):</b> abrila y tocá <b>Escanear el código QR</b>. Comprueba sola "
+            "que es tu PC y no muestra avisos.<br>"
+            "<b>Sin la app:</b><br>"
             "2. Escaneá el código con la cámara (o Google Lens) y abrí el enlace en Chrome.<br>"
             "3. La conexión va <b>cifrada (HTTPS)</b> con un certificado propio de TVon. La primera vez Chrome "
             "avisa «La conexión no es privada» porque no lo conoce: tocá <b>Configuración avanzada → "
@@ -155,7 +158,7 @@ class DialogoOn(QDialog):
             if fuera and remota:
                 self.lbl_estado.setText("Para fuera de casa (Tailscale): escaneá este código con el celular "
                                         "estando conectado a Tailscale. Queda como otra conexión, aparte de la de casa:")
-                url, url_emparejar = remota, f"{remota}?c={self.remoto.codigo}"
+                url, url_emparejar = remota, f"{remota}{self.remoto.consulta_emparejar()}"
             else:
                 self.lbl_estado.setText("Usarlo fuera de casa:" if fuera else "Escaneá este código con el celular:")
                 url, url_emparejar = self.remoto.url, self.remoto.url_emparejar

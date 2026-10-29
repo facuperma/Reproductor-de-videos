@@ -4,11 +4,13 @@
 
 Aplicación de escritorio para organizar y ver videos e imágenes por categorías.
 
-## Descargar (Windows 10/11, 64 bits)
+## Descargar
 
-**[⬇ TVon-Setup-1.6.0.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.6.0.exe)** (33 MB)
+**[⬇ TVon-Setup-1.6.0.exe](https://github.com/facuperma/TVon-App-de-escritorio-para-organizar-y-ver-videos/raw/main/instalador/TVon-Setup-1.6.0.exe)** (33 MB) — para la PC (Windows 10/11, 64 bits)
 
-Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
+**[⬇ TVon-ON-1.1.0.apk](https://github.com/facuperma/TVon-App-de-escritorio-para-organizar-y-ver-videos/raw/main/instalador/TVon-ON-1.1.0.apk)** (3 MB) — app para el celular (Android 8 o más nuevo): ver más abajo, en [📱 ON](#-on-manejar-tvon-desde-el-celular)
+
+El instalador de la PC: ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
 Como el instalador no está firmado digitalmente, Windows puede mostrar «Windows protegió su PC»: tocá **Más información → Ejecutar de todas formas**.
 
@@ -45,6 +47,23 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 
 Botón **📱 ON** en la barra superior (o *Configuración → ON*; se pone verde mientras está encendido): abre la ventana de ON, donde se ve si está en OFF y se enciende para mostrar el código QR; escanealo con el celular (Android, en Chrome). El celular y la PC tienen que estar en la misma red wifi. Para tenerlo como app: en Chrome, menú ⋮ → *Agregar a la pantalla principal*.
 
+#### App para Android (recomendada)
+
+**[⬇ TVon-ON-1.1.0.apk](https://github.com/facuperma/TVon-App-de-escritorio-para-organizar-y-ver-videos/raw/main/instalador/TVon-ON-1.1.0.apk)** (3 MB, Android 8 o más nuevo). Bajalo en el celular y abrilo; Android pide permiso para *instalar apps de origen desconocido* (al navegador o a Archivos): permitilo solo para esto. Después tocá **📷 Escanear el código QR** con la ventana de ON abierta en la PC.
+
+Hace todo lo de la versión web (reproductor, subtítulos, cola, biblioteca, categorías, torrents, dominio público, mouse, teclado en vivo y pantalla de la PC) y además:
+
+- **Sin el aviso «La conexión no es privada»:** el QR trae la huella del certificado de la PC y la app solo acepta ese certificado (*certificate pinning*). Si alguien en la red se hace pasar por la PC, la app corta. Con un TVon anterior (QR sin huella), la app muestra la huella para compararla con la de la ventana ON.
+- **Sesión cifrada en el celular** con el Android Keystore, sin copias de seguridad en la nube.
+- **Pantalla de la PC más fluida**: decodificación nativa, sin acumular demora; pellizcar hace zoom, ⛶ la pone a pantalla completa acostada.
+- **🏠 Inicio, como Jellyfin:** las películas y series de la PC con póster, sinopsis, géneros y puntaje; *Seguir viendo*, *A continuación* (el capítulo que sigue), *Agregadas hace poco* y Favoritos; filtros por género y orden. Las series se agrupan solas por temporada.
+- **Ver en el celular:** tocá una película y *📱 Ver en el celular*: llega por la misma conexión cifrada, con subtítulos y siguiendo desde donde quedaste (en la PC o en el celular: el progreso es uno solo). Si el celular no puede reproducir el sonido o el video, la PC lo convierte mientras lo ves (hace falta ffmpeg: `winget install Gyan.FFmpeg`).
+- **Links magnet:** tocá uno en el navegador (o *Compartir → TVon ON*) y va directo a la PC.
+- **Botones de volumen** del celular → volumen de TVon (en Reproductor; se apaga en *Más*).
+- Casa y Tailscale: escaneá los dos QR (*Más → Agregar otra conexión*) y la app usa sola la que ande.
+
+Para compilarla: JDK 17 y Android SDK 35; en `android\`, `gradlew assembleRelease` (firma con `android\firma.properties`, que no está en el repositorio).
+
 - **Reproductor:** play/pausa, saltos de 5 y 15 s, barra de tiempo, volumen, siguiente capítulo o de la cola, anterior/siguiente de la lista, pantalla completa, *Apagar al terminar* (y cancelar la cuenta para apagar). Muestra lo que se está viendo.
 - **Subtítulos:** elegir archivo o pista, desactivarlos, retraso, tamaño y buscar en OpenSubtitles.
 - **Cola:** ver, reproducir uno ya, quitar o vaciar.
@@ -75,6 +94,10 @@ Botón **📱 ON** en la barra superior (o *Configuración → ON*; se pone verd
 - Los videos que terminan de bajarse en **Descargas** se mueven solos a **Videos** (con sus subtítulos) y entran a la biblioteca. También los de las carpetas que crean los programas de torrents (uTorrent, qBittorrent), si son del último mes; los «sample» se ignoran.
 - Si el programa de torrents sigue compartiendo el archivo, la película aparece igual en la biblioteca apenas termina de bajar, y se mueve a Videos cuando el programa la suelta (conserva categorías y subtítulos).
 - Todo se ajusta en **Configuración → Preferencias** (agregar o quitar carpetas, desactivar el movimiento).
+
+### 🎞 Fichas de películas y series
+
+TVon busca solo, en segundo plano, la ficha de cada película y serie: póster, sinopsis, año, géneros y puntaje. Se ve debajo del reproductor y en la app del celular. Sin configurar nada sale de Wikipedia (películas) y TVmaze (series); con una clave gratis de [TMDb](https://www.themoviedb.org/settings/api) en *Configuración → Preferencias* sale mejor y en español. Las de dominio público usan los datos del Internet Archive. Lo que se baja (torrents, dominio público, Descargas) recibe su ficha apenas entra a la biblioteca. Si alguna salió mal: clic derecho → *🎞 Corregir ficha…*. Los capítulos se agrupan en series por el nombre (`S01E02`, `Cap 3`).
 
 ### Favoritos
 

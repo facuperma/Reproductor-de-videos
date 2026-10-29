@@ -68,8 +68,8 @@ def pedir_json(url: str, params: list | dict | None = None, cuerpo: dict | None 
         return json.load(r)
 
 
-def bajar_bytes(url: str, timeout: int = 60) -> bytes:
-    with _abrir(Request(url, headers={"User-Agent": AGENTE}), timeout) as r:
+def bajar_bytes(url: str, timeout: int = 60, cabeceras: dict | None = None) -> bytes:
+    with _abrir(Request(url, headers={"User-Agent": AGENTE, **(cabeceras or {})}), timeout) as r:
         return r.read()
 
 

@@ -30,13 +30,17 @@ class DialogoConfig(QDialog):
         self.api_key = QLineEdit(bib.config("os_api_key"))
         self.usuario = QLineEdit(bib.config("os_usuario"), placeholderText="Opcional: da más descargas por día")
         self.clave = QLineEdit(bib.config("os_clave"), echoMode=QLineEdit.Password)
+        self.tmdb = QLineEdit(bib.config("tmdb_api_key"), placeholderText="Opcional: pósters y sinopsis en español")
 
         ayuda = QLabel(
             'Para los subtítulos creá una cuenta gratis en '
             '<a href="https://www.opensubtitles.com">opensubtitles.com</a> y pedí una clave de API en '
             '<a href="https://www.opensubtitles.com/consumers">opensubtitles.com/consumers</a>.<br>'
             'Con la clave, TVon baja solo el subtítulo (en el primer idioma) de cada película nueva.<br>'
-            'La contraseña se guarda solo en esta computadora (archivo biblioteca.db).',
+            'La contraseña se guarda solo en esta computadora (archivo biblioteca.db).<br><br>'
+            'Fichas de películas y series (póster, sinopsis, géneros): TVon las busca solas en Wikipedia y '
+            'TVmaze. Con una clave gratis de <a href="https://www.themoviedb.org/settings/api">TMDb</a> salen '
+            'mejores y en español. Clic derecho en un video → <i>Corregir ficha</i> si alguna salió mal.',
             openExternalLinks=True, wordWrap=True, objectName="pista",
         )
 
@@ -46,6 +50,7 @@ class DialogoConfig(QDialog):
         form.addRow("OpenSubtitles – clave de API:", self.api_key)
         form.addRow("OpenSubtitles – usuario:", self.usuario)
         form.addRow("OpenSubtitles – contraseña:", self.clave)
+        form.addRow("TMDb – clave de API:", self.tmdb)
 
         # --- Biblioteca automática ---------------------------------------------
         self.lista_carpetas = QListWidget()
@@ -107,7 +112,8 @@ class DialogoConfig(QDialog):
     def _guardar(self):
         for clave, campo in (("carpeta_descargas", self.carpeta), ("idiomas_subtitulos", self.idiomas),
                              ("os_api_key", self.api_key), ("os_usuario", self.usuario),
-                             ("os_clave", self.clave), ("carpeta_descargas_sistema", self.descargas_sistema),
+                             ("os_clave", self.clave), ("tmdb_api_key", self.tmdb),
+                             ("carpeta_descargas_sistema", self.descargas_sistema),
                              ("carpeta_videos", self.carpeta_videos)):
             self.bib.guardar_config(clave, campo.text().strip())
         self.bib.guardar_config("mover_descargas", "1" if self.chk_mover.isChecked() else "0")

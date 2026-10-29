@@ -51,10 +51,12 @@ CONFIG_DEFECTO = {
     "auto_activa": "0",
     "auto_max_peliculas": "20",
     "auto_max_gb": "50",
+    # Fichas (póster, sinopsis): con clave de TMDb salen de ahí; sin clave, de Wikipedia y TVmaze
+    "tmdb_api_key": "",
 }
 
-# Se guardan cifrados (seguridad.proteger): claves de OpenSubtitles y de ON
-SECRETOS = {"os_api_key", "os_usuario", "os_clave", "on_codigo", "on_clave_cert", "on_sesiones"}
+# Se guardan cifrados (seguridad.proteger): claves de OpenSubtitles, TMDb y ON
+SECRETOS = {"os_api_key", "os_usuario", "os_clave", "on_codigo", "on_clave_cert", "on_sesiones", "tmdb_api_key"}
 
 CATEGORIA_DOMINIO_PUBLICO = "Dominio público"
 # Un video cuenta como visto al pasar este punto (los créditos no hace falta verlos)
@@ -123,6 +125,23 @@ class Biblioteca:
                 duracion_ms INTEGER NOT NULL DEFAULT 0,
                 visto       INTEGER NOT NULL DEFAULT 0,
                 actualizado REAL NOT NULL DEFAULT (julianday('now'))
+            );
+            -- Fichas de películas y series (fichas.py): una por título, no por archivo.
+            -- clave: «pelicula|the matrix|1999» o «serie|breaking bad». encontrada 0 = se buscó y no
+            -- apareció (se vuelve a probar en unos días). busqueda: el título corregido a mano.
+            CREATE TABLE IF NOT EXISTS fichas (
+                clave      TEXT PRIMARY KEY,
+                tipo       TEXT NOT NULL,
+                titulo     TEXT,
+                anio       TEXT,
+                sinopsis   TEXT,
+                generos    TEXT,
+                puntaje    REAL,
+                poster     TEXT,
+                fuente     TEXT,
+                busqueda   TEXT,
+                encontrada INTEGER NOT NULL DEFAULT 0,
+                buscada    REAL NOT NULL DEFAULT (julianday('now'))
             );
             """
         )
@@ -415,6 +434,20 @@ class Biblioteca:
         vistos = {r for r, in self.con.execute(
             f"SELECT ruta FROM progreso WHERE visto AND ruta IN ({marcadores})", rutas)}
         return next((r for r in rutas if r not in vistos), None)
+
+    def seguir_viendo(self, limite: int = 15) -> list[tuple[int, str, str, int, int]]:
+        """Los videos que quedaron a medias, el último que se tocó primero:
+        (id, ruta, nombre, posición ms, duración ms)."""
+        return self.con.execute(
+            """
+            SELECT a.id, a.ruta, a.nombre, p.posicion_ms, p.duracion_ms FROM progreso p
+            JOIN archivos a ON a.ruta = p.ruta
+            WHERE a.tipo = 'video' AND p.posicion_ms >= ? AND p.duracion_ms > 0
+                AND p.posicion_ms < p.duracion_ms * ?
+            ORDER BY p.actualizado DESC LIMIT ?
+            """,
+            (RETOMAR_DESDE_MS, VISTO_DESDE, limite),
+        ).fetchall()
 
     def vistos_por_categoria(self) -> dict[int, int]:
         """{id de categoría: cantidad de videos vistos}."""

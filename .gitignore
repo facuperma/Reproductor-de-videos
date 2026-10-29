@@ -8,3 +8,11 @@ torrents.dht
 torrents.sesion
 on_certificado.pem
 on_clave.pem
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/firma.properties
+*.jks
+posters/

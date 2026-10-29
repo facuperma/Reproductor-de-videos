@@ -1,0 +1,3 @@
+android/gradlew text eol=lf
+*.apk binary
+*.exe binary

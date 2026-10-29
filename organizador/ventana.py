@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PySide6 import __version__ as VERSION_QT
 from PySide6.QtCore import QByteArray, QEvent, QItemSelectionModel, QPoint, Qt, QTimer, QUrl, QUrlQuery
-from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout,
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
@@ -23,6 +23,8 @@ from .descargas import GestorDescargas
 from .dialogo_config import DialogoConfig
 from .dialogo_on import DialogoOn
 from .dominio_publico import VentanaDominioPublico, a_la_papelera, eliminar_video
+from . import fichas
+from .fichas import BuscadorFichas
 from .remoto import Remoto
 from .subtitulos import EXT_SUBTITULOS
 from .inicio_windows import traer_al_frente
@@ -58,7 +60,7 @@ FILTROS_FIJOS = {
 }
 # Lo que puede quedar de una película en su carpeta después de borrarla
 EXT_SUBTITULOS_TODOS = EXT_SUBTITULOS | {".ass", ".ssa", ".sub", ".idx"}
-REPOSITORIO = "https://github.com/facuperma/Reproductor-de-videos"
+REPOSITORIO = "https://github.com/facuperma/TVon-App-de-escritorio-para-organizar-y-ver-videos"
 AUTOR = "Faierwall"
 
 
@@ -96,6 +98,9 @@ class Ventana(QMainWindow):
         self.torrents.terminado.connect(self._torrent_terminado)
         self.torrents.estado.connect(self._insignia_torrents)
         self.torrents.mensaje.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        # Fichas (póster, sinopsis, géneros) de cada película y serie, en segundo plano
+        self.buscador_fichas = BuscadorFichas(biblioteca.ruta_db)
+        self.buscador_fichas.nueva.connect(self._ficha_nueva)
         self.setWindowTitle("TVon")
         self.resize(1400, 820)
         self.setAcceptDrops(True)
@@ -197,6 +202,19 @@ class Ventana(QMainWindow):
 
         self.lbl_nombre = QLabel(objectName="titulo")
         self.lbl_nombre.setWordWrap(True)
+        # La ficha de la película o serie: póster, año, géneros, puntaje y sinopsis
+        self.ficha = QWidget()
+        capa_ficha = QHBoxLayout(self.ficha)
+        capa_ficha.setContentsMargins(0, 0, 0, 0)
+        self.lbl_poster = QLabel()
+        self.lbl_poster.setFixedWidth(72)
+        self.lbl_poster.setAlignment(Qt.AlignTop)
+        self.lbl_ficha = QLabel(wordWrap=True, objectName="pista")
+        self.lbl_ficha.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.lbl_ficha.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        capa_ficha.addWidget(self.lbl_poster)
+        capa_ficha.addWidget(self.lbl_ficha, 1)
+        self.ficha.hide()
         # La ruta ya no va debajo del reproductor: se copia desde la lista (clic derecho o Ctrl+C)
         # y la carpeta se abre tocando su vínculo
 
@@ -234,6 +252,7 @@ class Ventana(QMainWindow):
         capa_det = QVBoxLayout(self.detalles)
         capa_det.setContentsMargins(0, 0, 0, 0)
         capa_det.addWidget(self.lbl_nombre)
+        capa_det.addWidget(self.ficha)
         capa_det.addWidget(grupo_cat)
         capa_det.addLayout(fila_nav)
 
@@ -267,6 +286,7 @@ class Ventana(QMainWindow):
         self.gestor.iniciar()
         self.vigilante.iniciar()
         self.torrents.iniciar()
+        self.buscador_fichas.iniciar()
 
     # --- Construcción -------------------------------------------------------
 
@@ -822,6 +842,8 @@ class Ventana(QMainWindow):
         menu.addAction("📋 Copiar ruta" if n == 1 else f"📋 Copiar rutas ({n})\tCtrl+C", self._copiar_rutas)
         if n == 1:
             menu.addAction("Abrir ubicación", lambda: self.abrir_ubicacion(seleccion[0][1]))
+            if seleccion[0][2] == "video":
+                menu.addAction("🎞 Corregir ficha…", lambda: self._corregir_ficha(seleccion[0][1]))
         menu.addAction(f"Quitar de la biblioteca ({n})", self._quitar_archivo)
         menu.addAction(f"🗑 Eliminar del disco ({n})…", self._eliminar_del_disco)
         menu.exec(self.lista.viewport().mapToGlobal(pos))
@@ -874,7 +896,45 @@ class Ventana(QMainWindow):
             aid, ruta, tipo = datos
             self.lbl_nombre.setText(("🎬 " if tipo == "video" else "🖼 ") + nombre_lindo(Path(ruta).name))
             self.lbl_nombre.setToolTip(ruta)
+        self._mostrar_ficha(datos)
         self._mostrar_categorias_archivo()
+
+    def _mostrar_ficha(self, datos):
+        """Debajo del nombre, la ficha de la película o serie (si ya se encontró)."""
+        f = None
+        if datos and datos[2] == "video":
+            f = fichas.ficha(self.bib, fichas.clave_de(Path(datos[1]).name)[0])
+        if not f or not f.get("encontrada"):
+            self.ficha.hide()
+            return
+        if ruta := fichas.poster(f):
+            imagen = QPixmap(ruta)
+            self.lbl_poster.setPixmap(imagen.scaledToWidth(72, Qt.SmoothTransformation) if not imagen.isNull() else QPixmap())
+        else:
+            self.lbl_poster.clear()
+        datos_linea = [d for d in (f.get("anio"), ", ".join(fichas.generos(f)),
+                                   f"★ {f['puntaje']}" if f.get("puntaje") else None) if d]
+        sinopsis = f.get("sinopsis") or ""
+        if len(sinopsis) > 420:
+            sinopsis = sinopsis[:420].rsplit(" ", 1)[0] + "…"
+        self.lbl_ficha.setText(f"<b>{escape(f.get('titulo') or '')}</b> · {escape(' · '.join(datos_linea))}<br>"
+                               f"{escape(sinopsis)}<br><i>Ficha: {escape(f.get('fuente') or '')}</i>")
+        self.ficha.show()
+
+    def _ficha_nueva(self, clave: str):
+        actual = self.archivo_actual()
+        if actual and actual[2] == "video" and fichas.clave_de(Path(actual[1]).name)[0] == clave:
+            self._mostrar_ficha(actual)
+
+    def _corregir_ficha(self, ruta: str):
+        clave, titulo, _anio = fichas.clave_de(Path(ruta).name)
+        texto, ok = QInputDialog.getText(self, "Corregir ficha",
+                                         "Título con el que se busca (podés sumar el año, p. ej. «Dune 2021»):",
+                                         text=titulo)
+        if ok and texto.strip():
+            fichas.corregir(self.bib, clave, texto)
+            self.buscador_fichas.despertar()
+            self.statusBar().showMessage("Buscando la ficha de nuevo…", 5000)
 
     def _nombre_categoria(self, cid: int, nombre: str) -> str:
         return f"★ {nombre}" if cid == self.bib.favoritos else nombre
@@ -1213,6 +1273,7 @@ class Ventana(QMainWindow):
         self.gestor.detener()
         self.vigilante.detener()
         self.torrents.detener()  # los torrents a medias se retoman al volver a abrir TVon
+        self.buscador_fichas.detener()
         self.remoto.detener()
         for ventana in [*self.ventanas_video, self.ventana_dominio, self.ventana_torrents, self.dialogo_on, self.aviso]:
             if ventana:
@@ -1345,6 +1406,7 @@ class Ventana(QMainWindow):
     def _torrent_terminado(self, videos: list, nombre: str):
         nuevos = self.bib.agregar_archivos([Path(v) for v in videos])
         self.cargar_filtros()
+        self.buscador_fichas.despertar()
         self.statusBar().showMessage(f"Torrent terminado: {nombre} ({nuevos} video(s) en la biblioteca)", 10000)
         self._buscar_subtitulos_solos(videos)
 
@@ -1427,10 +1489,12 @@ class Ventana(QMainWindow):
 
     def _videos_encontrados(self, cantidad: int):
         self.cargar_filtros()
+        self.buscador_fichas.despertar()
         self.statusBar().showMessage(f"{cantidad} video(s) nuevo(s) en tus carpetas", 8000)
 
     def _video_movido(self, ruta: str):
         self.cargar_filtros()
+        self.buscador_fichas.despertar()
         self.statusBar().showMessage(f"Movido de Descargas a {Path(ruta).parent.name}: {Path(ruta).name}", 8000)
 
     # --- Categoría desde el título -------------------------------------------------
@@ -1535,6 +1599,7 @@ class Ventana(QMainWindow):
         if (aid := self.bib.id_de_ruta(str(Path(ruta).resolve()))) is not None:
             self.bib.asignar(aid, self.bib.categoria_id(CATEGORIA_DOMINIO_PUBLICO), True)
         self.cargar_filtros()
+        self.buscador_fichas.despertar()
         self.statusBar().showMessage(f"Descargada y agregada a la biblioteca: {Path(ruta).stem}", 8000)
 
     def abrir_ubicacion(self, ruta: str | None = None):
@@ -1568,6 +1633,7 @@ class Ventana(QMainWindow):
 
     def _importado(self, nuevos: int):
         self.cargar_filtros()
+        self.buscador_fichas.despertar()
         self.statusBar().showMessage(f"{nuevos} archivo(s) nuevo(s) agregado(s)", 5000)
 
     def dragEnterEvent(self, e):

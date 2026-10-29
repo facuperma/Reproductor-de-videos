@@ -10,9 +10,13 @@ El servidor atiende cada pedido en un hilo propio. Todo lo que toca la ventana o
 import ipaddress
 import json
 import re
+import os
 import secrets
+import shutil
 import socket
 import ssl
+import subprocess
+import sys
 import threading
 import time
 from http.cookies import SimpleCookie
@@ -26,12 +30,13 @@ from PySide6.QtGui import QDesktopServices, QImage, QImageReader
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtWidgets import QApplication
 
-from . import archive, inicio_windows, pantalla_remota, seguridad
-from .db import CATEGORIA_FAVORITOS
+from . import archive, fichas, inicio_windows, pantalla_remota, seguridad
+from .db import CATEGORIA_FAVORITOS, orden_natural
 from .dominio_publico import (
     ESTADOS, cancelar_descargas, eliminar_peliculas, peliculas_borrables, quitar_descargas,
     reintentar_descargas,
 )
+from .subtitulos import descripcion, leer_texto, subtitulos_junto_a
 from .subtitulos_online import buscar_para_visor
 from .titulos import nombre_lindo
 from .torrents import ErrorTorrent
@@ -45,6 +50,39 @@ ESPERA_INTERFAZ = 15  # segundos: si la ventana está trabada más que esto, el 
 SITIOS = {"peliculas": "https://ext.to/", "subtitulos": "https://subdivx.com/"}
 TIPOS = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".webmanifest": "application/manifest+json", ".png": "image/png"}
+TIPOS_VIDEO = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm",
+               ".avi": "video/x-msvideo", ".mov": "video/quicktime", ".wmv": "video/x-ms-wmv",
+               ".flv": "video/x-flv", ".mpg": "video/mpeg", ".mpeg": "video/mpeg"}
+
+
+def ffmpeg() -> str | None:
+    """ffmpeg para convertir lo que el celular no puede reproducir: el que viene con TVon
+    (organizador\\bin) o uno instalado (winget install Gyan.FFmpeg)."""
+    propio = Path(__file__).parent / "bin" / "ffmpeg.exe"
+    if propio.is_file():
+        return str(propio)
+    # winget deja un acceso en esta carpeta; TVon abierto desde antes de instalarlo no lo ve en el PATH
+    winget = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe"
+    return shutil.which("ffmpeg") or (str(winget) if winget.exists() else None)
+
+
+def subtitulos_del_video(bib, ruta: str) -> list[str]:
+    """Los subtítulos que puede elegir el celular, siempre en el mismo orden: los que están junto
+    al video y, si no está entre ellos, el que se eligió a mano en la PC."""
+    lista = subtitulos_junto_a(ruta)
+    guardado = bib.subtitulos_de(ruta)
+    if guardado and guardado[0] and guardado[0] not in lista and Path(guardado[0]).is_file():
+        lista.append(guardado[0])
+    return lista
+
+
+def _creado(ruta: str) -> float:
+    """Cuándo llegó el archivo a la PC (en Windows, la fecha de creación; moverlo no la cambia)."""
+    try:
+        datos = os.stat(ruta)
+        return getattr(datos, "st_birthtime", None) or datos.st_ctime
+    except OSError:
+        return 0.0
 # La página solo carga lo propio; la API no se puede incrustar en otros sitios
 SEGURIDAD = {"Content-Security-Policy": "default-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'",
              "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
@@ -206,7 +244,12 @@ class Remoto(QObject):
 
     @property
     def url_emparejar(self) -> str:
-        return f"{self.url}?c={self.codigo}" if self.activo else ""
+        return f"{self.url}{self.consulta_emparejar()}" if self.activo else ""
+
+    def consulta_emparejar(self) -> str:
+        """El código del QR y la huella del certificado: con la huella, la app de Android
+        solo le habla a esta PC (la web la ignora)."""
+        return f"?c={self.codigo}&h={self.huella_certificado.replace(':', '')}"
 
     def url_remota(self) -> str:
         """Dirección para fuera de casa, por Tailscale ("" si no está)."""
@@ -475,6 +518,22 @@ class _Manejador(BaseHTTPRequestHandler):
             self._json(self.remoto.puente.llamar(control.descargas))
         elif ruta == "/api/torrents":
             self._json(self.remoto.puente.llamar(control.torrents))
+        elif ruta == "/api/inicio":
+            self._json(self.remoto.puente.llamar(control.inicio))
+        elif ruta == "/api/catalogo":
+            self._json(self.remoto.puente.llamar(lambda: control.catalogo(
+                consulta.get("tipo", "pelicula"), consulta.get("genero", ""), consulta.get("q", ""),
+                consulta.get("orden", "recientes"))))
+        elif ruta == "/api/serie":
+            self._json(self.remoto.puente.llamar(lambda: control.serie(consulta.get("c", ""))))
+        elif ruta == "/api/ficha":
+            self._json(self.remoto.puente.llamar(lambda: control.ficha_archivo(_entero(consulta.get("id")))))
+        elif ruta == "/api/poster":
+            self._poster(consulta.get("c", ""))
+        elif ruta == "/api/video":
+            self._video(consulta)
+        elif ruta == "/api/subtitulo":
+            self._subtitulo(consulta)
         elif ruta == "/api/pantalla/monitores":
             self._json(self._monitores())
         elif ruta == "/api/pantalla.mjpg":
@@ -557,6 +616,116 @@ class _Manejador(BaseHTTPRequestHandler):
             self.end_headers()
             return
         self._responder(200, pantalla_remota.jpeg(imagen, 640, 70), "image/jpeg", {"Cache-Control": "no-store"})
+
+    # --- Ver en el celular: el video, sus subtítulos y los pósters ----------------------
+
+    def _video_de(self, consulta: dict) -> Path:
+        aid = _entero(consulta.get("id"))
+        filas = self.remoto.puente.llamar(lambda: self.remoto.bib.archivos_por_id([aid]))
+        if not filas or filas[0][2] != "video":
+            raise ErrorRemoto("Ese video no está en la biblioteca", 404)
+        ruta = Path(filas[0][1])
+        if not ruta.is_file():
+            raise ErrorRemoto("El archivo ya no está en esa ubicación", 404)
+        return ruta
+
+    def _video(self, consulta: dict):
+        """El archivo tal cual, por partes (Range): el celular adelanta sin bajarlo entero."""
+        ruta = self._video_de(consulta)
+        if modo := consulta.get("compat"):
+            return self._convertir(ruta, modo, consulta.get("desde", "0"))
+        total = ruta.stat().st_size
+        inicio, fin, codigo = 0, total - 1, 200
+        if rango := self.headers.get("Range"):
+            m = re.fullmatch(r"bytes=(\d*)-(\d*)", rango.strip())
+            if not m or not (m.group(1) or m.group(2)):
+                raise ErrorRemoto("Rango inválido", 416)
+            if m.group(1):
+                inicio = int(m.group(1))
+                fin = min(int(m.group(2)), total - 1) if m.group(2) else total - 1
+            else:  # «bytes=-500»: los últimos 500
+                inicio = max(0, total - int(m.group(2)))
+            if inicio > fin or inicio >= total:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{total}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            codigo = 206
+        self.send_response(codigo)
+        self.send_header("Content-Type", TIPOS_VIDEO.get(ruta.suffix.lower(), "application/octet-stream"))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(fin - inicio + 1))
+        if codigo == 206:
+            self.send_header("Content-Range", f"bytes {inicio}-{fin}/{total}")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        with open(ruta, "rb") as archivo:
+            archivo.seek(inicio)
+            restante = fin - inicio + 1
+            while restante > 0:
+                bloque = archivo.read(min(256 * 1024, restante))
+                if not bloque:
+                    break
+                self.wfile.write(bloque)
+                restante -= len(bloque)
+
+    def _convertir(self, ruta: Path, modo: str, desde: str):
+        """Para lo que el celular no puede reproducir (sonido DTS, video AVI…): ffmpeg lo convierte
+        mientras se ve. «audio» deja el video como está y solo pasa el sonido a AAC; «video»
+        convierte todo a H.264. No se puede pedir por partes: para adelantar se pide de nuevo desde ahí."""
+        exe = ffmpeg()
+        if not exe:
+            raise ErrorRemoto("Para ver este video en el celular hace falta ffmpeg en la PC "
+                              "(winget install Gyan.FFmpeg y volver a abrir TVon)", 501)
+        if modo not in ("audio", "video"):
+            raise ErrorRemoto("Modo de conversión desconocido")
+        segundos = float(desde)
+        if not 0 <= segundos < 10 * 3600:
+            raise ErrorRemoto("Posición inválida")
+        video = ["-c:v", "copy"] if modo == "audio" else [
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"]
+        orden = [exe, "-hide_banner", "-loglevel", "error", "-ss", f"{segundos:.3f}", "-i", str(ruta),
+                 "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", *video,
+                 "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-f", "mpegts", "pipe:1"]
+        proceso = subprocess.Popen(orden, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL,
+                                   creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp2t")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            while bloque := proceso.stdout.read(128 * 1024):
+                self.wfile.write(bloque)
+        finally:
+            proceso.kill()  # el celular cortó o adelantó: ffmpeg no queda trabajando de más
+            proceso.wait()
+            self.close_connection = True
+
+    def _subtitulo(self, consulta: dict):
+        ruta = self._video_de(consulta)
+        lista = self.remoto.puente.llamar(lambda: subtitulos_del_video(self.remoto.bib, str(ruta)))
+        try:
+            sub = Path(lista[int(consulta.get("n", 0))])
+        except (ValueError, IndexError):
+            raise ErrorRemoto("Ese subtítulo no existe", 404) from None
+        # Siempre en UTF-8: muchos .srt vienen en Windows-1252 y el celular vería «Ã±»
+        texto = leer_texto(sub).encode("utf-8")
+        tipo = "text/vtt" if sub.suffix.lower() == ".vtt" else "application/x-subrip"
+        self._responder(200, texto, f"{tipo}; charset=utf-8", {"Cache-Control": "no-store"})
+
+    def _poster(self, clave: str):
+        ruta = self.remoto.puente.llamar(lambda: fichas.poster(fichas.ficha(self.remoto.bib, clave)))
+        carpeta = (Path(self.remoto.bib.ruta_db).parent / "posters").resolve()
+        # Solo imágenes de la carpeta de pósters, nada más del disco
+        if not ruta or Path(ruta).resolve().parent != carpeta:
+            raise ErrorRemoto("No hay póster", 404)
+        self._responder(200, Path(ruta).read_bytes(), "image/jpeg", {"Cache-Control": "private, max-age=86400"})
 
     # --- Dominio público ----------------------------------------------------------------
 
@@ -807,6 +976,166 @@ class _Control:
                  "restante": VentanaTorrents._tiempo_restante(d) or "", "error": d["error"]}
                 for d in self.ventana.torrents_estado]
 
+    # --- Ver en el celular: inicio, catálogo y fichas (como Jellyfin) ------------------
+
+    def _ficha_json(self, f: dict | None, titulo: str, anio: str | None) -> dict:
+        encontrada = bool(f and f.get("encontrada"))
+        return {
+            "titulo": (f.get("titulo") if encontrada else None) or titulo,
+            "anio": (f.get("anio") if encontrada else None) or anio,
+            "sinopsis": (f or {}).get("sinopsis") or "",
+            "generos": fichas.generos(f),
+            "puntaje": (f or {}).get("puntaje"),
+            "poster": fichas.poster(f) is not None,
+            "fuente": (f or {}).get("fuente") or "",
+        }
+
+    def _tarjetas(self) -> tuple[list[dict], dict[str, dict]]:
+        """Una tarjeta por película y por serie, con su ficha y cuánto se vio."""
+        peliculas, series = fichas.agrupar(self.bib)
+        todas = fichas.fichas(self.bib)
+        progresos = self.bib.progresos()
+        fav = {a for a, cids in self.bib.categorias_por_archivo().items() if self.bib.favoritos in cids}
+        tarjetas = []
+        for p in peliculas:
+            prog = progresos.get(p["ruta"])
+            calidad = " · ".join(nombre_lindo(p["nombre"]).split(" · ")[1:])
+            tarjetas.append({
+                "tipo": "pelicula", "id": p["id"], "clave": p["clave"], "sub": calidad,
+                **self._ficha_json(todas.get(p["clave"]), p["titulo"], p["anio"]),
+                "visto": bool(prog and prog[2]),
+                "progreso": round(prog[0] / prog[1], 3) if prog and prog[1] and prog[0] and not prog[2] else None,
+                "agregado": _creado(p["ruta"]), "favorito": p["id"] in fav,
+            })
+        for s in series.values():
+            vistos = sum(1 for e in s["episodios"] if (pr := progresos.get(e["ruta"])) and pr[2])
+            total = len(s["episodios"])
+            temporadas = len({e["temporada"] for e in s["episodios"]})
+            tarjetas.append({
+                "tipo": "serie", "id": None, "clave": s["clave"],
+                "sub": f"{temporadas} temporadas" if temporadas > 1 else f"{total} capítulo(s)",
+                **self._ficha_json(todas.get(s["clave"]), s["titulo"], None),
+                "visto": vistos == total, "progreso": round(vistos / total, 3) if 0 < vistos < total else None,
+                "episodios": total, "sin_ver": total - vistos,
+                "agregado": max(_creado(e["ruta"]) for e in s["episodios"]),
+                "favorito": any(e["id"] in fav for e in s["episodios"]),
+            })
+        return tarjetas, series
+
+    def _tarjeta_episodio(self, serie: dict, e: dict, todas: dict, posicion: int = 0, duracion: int = 0) -> dict:
+        f = todas.get(serie["clave"])
+        return {"tipo": "episodio", "id": e["id"], "clave": serie["clave"],
+                **self._ficha_json(f, serie["titulo"], None),
+                "sub": f"T{e['temporada']} · Cap. {e['episodio']}",
+                "progreso": round(posicion / duracion, 3) if duracion else None}
+
+    def inicio(self) -> dict:
+        tarjetas, series = self._tarjetas()
+        todas = fichas.fichas(self.bib)
+        por_ruta = {e["ruta"]: (s, e) for s in series.values() for e in s["episodios"]}
+        por_clave = {t["clave"]: t for t in tarjetas if t["tipo"] == "pelicula"}
+        # Seguir viendo: lo que quedó a medias, lo último primero
+        seguir, ya = [], set()
+        for aid, ruta, nombre, posicion, duracion in self.bib.seguir_viendo():
+            if ruta in por_ruta:
+                serie, e = por_ruta[ruta]
+                seguir.append(self._tarjeta_episodio(serie, e, todas, posicion, duracion))
+                ya.add(serie["clave"])
+            else:
+                clave = fichas.clave_de(nombre)[0]
+                base = por_clave.get(clave) or {"tipo": "pelicula", "clave": clave,
+                                                **self._ficha_json(todas.get(clave), fichas.titulo_de(nombre), None)}
+                seguir.append({**base, "id": aid, "progreso": round(posicion / duracion, 3)})
+        # A continuación: en las series empezadas, el capítulo que sigue al último visto
+        progresos = self.bib.progresos()
+        siguientes = []
+        for s in series.values():
+            if s["clave"] in ya:
+                continue
+            vistos = [i for i, e in enumerate(s["episodios"]) if (p := progresos.get(e["ruta"])) and p[2]]
+            if vistos and vistos[-1] + 1 < len(s["episodios"]):
+                e = s["episodios"][vistos[-1] + 1]
+                siguientes.append((max(_creado(x["ruta"]) for x in s["episodios"]), self._tarjeta_episodio(s, e, todas)))
+        siguientes.sort(key=lambda par: par[0], reverse=True)
+        recientes = sorted(tarjetas, key=lambda t: t["agregado"], reverse=True)[:20]
+        return {
+            "seguir": seguir, "siguientes": [t for _, t in siguientes[:15]], "recientes": recientes,
+            "favoritos": [t for t in tarjetas if t["favorito"]][:30],
+            "peliculas": sum(1 for t in tarjetas if t["tipo"] == "pelicula"),
+            "series": sum(1 for t in tarjetas if t["tipo"] == "serie"),
+            "generos": sorted({g for t in tarjetas for g in t["generos"]}),
+            "conversion": ffmpeg() is not None,
+        }
+
+    def catalogo(self, tipo: str, genero: str, texto: str, orden: str) -> list[dict]:
+        if tipo not in ("pelicula", "serie", "todo"):
+            raise ErrorRemoto("Tipo desconocido")
+        tarjetas, _ = self._tarjetas()
+        buscado = fichas._normal(texto)
+        lista = [t for t in tarjetas if (tipo == "todo" or t["tipo"] == tipo)
+                 and (not genero or genero in t["generos"])
+                 and (not buscado or buscado in fichas._normal(t["titulo"]))]
+        if orden == "titulo":
+            lista.sort(key=lambda t: orden_natural(t["titulo"]))
+        elif orden == "anio":
+            lista.sort(key=lambda t: t["anio"] or "", reverse=True)
+        elif orden == "puntaje":
+            lista.sort(key=lambda t: t["puntaje"] or 0, reverse=True)
+        else:
+            lista.sort(key=lambda t: t["agregado"], reverse=True)
+        return lista
+
+    def serie(self, clave: str) -> dict:
+        _, series = fichas.agrupar(self.bib)
+        s = series.get(clave)
+        if s is None:
+            raise ErrorRemoto("Esa serie ya no está en la biblioteca", 404)
+        progresos = self.bib.progresos()
+        temporadas: dict[int, list] = {}
+        for e in s["episodios"]:
+            p = progresos.get(e["ruta"])
+            temporadas.setdefault(e["temporada"], []).append({
+                "id": e["id"], "titulo": nombre_lindo(e["nombre"]), "episodio": e["episodio"],
+                "visto": bool(p and p[2]), "existe": Path(e["ruta"]).exists(),
+                "progreso": round(p[0] / p[1], 3) if p and p[1] and p[0] and not p[2] else None,
+            })
+        seguir = self.bib.para_seguir([e["ruta"] for e in s["episodios"]])
+        return {
+            "clave": clave, **self._ficha_json(fichas.ficha(self.bib, clave), s["titulo"], None),
+            "temporadas": [{"numero": n, "episodios": eps} for n, eps in sorted(temporadas.items())],
+            "seguir": next((e["id"] for e in s["episodios"] if e["ruta"] == seguir), None),
+        }
+
+    def ficha_archivo(self, aid: int) -> dict:
+        (aid, ruta, tipo), = self._archivos([aid])
+        if tipo != "video":
+            raise ErrorRemoto("Solo los videos tienen ficha")
+        nombre = Path(ruta).name
+        clave, titulo, anio = fichas.clave_de(nombre)
+        p = self.bib.progresos().get(ruta)
+        if clave.startswith("serie|"):
+            _, series = fichas.agrupar(self.bib)
+            eps = series.get(clave, {}).get("episodios", [])
+            i = next((i for i, e in enumerate(eps) if e["id"] == aid), None)
+            siguiente = eps[i + 1]["id"] if i is not None and i + 1 < len(eps) else None
+        else:
+            proximo = self.bib.siguiente_en_categoria(ruta)
+            siguiente = self.bib.id_de_ruta(proximo) if proximo else None
+        guardado = self.bib.subtitulos_de(ruta)
+        subs = subtitulos_del_video(self.bib, ruta)
+        return {
+            "id": aid, "clave": clave, "nombre": nombre, "nombre_lindo": nombre_lindo(nombre),
+            "serie": clave.startswith("serie|"),
+            **self._ficha_json(fichas.ficha(self.bib, clave), titulo, anio),
+            "existe": Path(ruta).exists(),
+            "posicion": self.bib.posicion_guardada(ruta), "duracion": p[1] if p else 0, "visto": bool(p and p[2]),
+            # Sin elección guardada se usa el primero (el que también carga la PC sola)
+            "subtitulos": [{"n": i, "texto": descripcion(s, ruta),
+                            "elegido": (s == guardado[0]) if guardado else i == 0} for i, s in enumerate(subs)],
+            "siguiente": siguiente, "conversion": ffmpeg() is not None,
+            "favorito": self.bib.favoritos in self.bib.categorias_de(aid),
+        }
+
     # --- Acciones ---------------------------------------------------------------------
 
     def ejecutar(self, accion: str, datos: dict):
@@ -1050,6 +1379,31 @@ class _Control:
     def accion_categoria_titulo(self, id):
         (_aid, ruta, _tipo), = self._archivos([id])
         return {"aviso": self.ventana.categoria_desde_titulo(Path(ruta).name)}
+
+    # Ver en el celular
+
+    def accion_progreso_celular(self, id, posicion, duracion):
+        """Por dónde va el celular: queda en la misma base que la PC (seguir viendo en cualquier lado)."""
+        (_aid, ruta, tipo), = self._archivos([id])
+        if tipo != "video":
+            raise ErrorRemoto("Solo los videos guardan progreso")
+        self.bib.guardar_progreso(ruta, max(0, int(posicion)), max(0, int(duracion)))
+        self.ventana._refrescar_progreso(ruta)
+
+    def accion_visto(self, ids, visto):
+        rutas = [ruta for _aid, ruta, tipo in self._archivos(ids) if tipo == "video"]
+        if not rutas:
+            raise ErrorRemoto("Elegí videos")
+        self.ventana._marcar_vistos(rutas, bool(visto))
+
+    def accion_ficha_corregir(self, clave, texto):
+        """La ficha salió mal (otra película, sin póster): se busca de nuevo con este título."""
+        clave, texto = str(clave), str(texto).strip()
+        if not re.fullmatch(r"(pelicula|serie)\|.+", clave) or not texto:
+            raise ErrorRemoto("Escribí el título correcto")
+        fichas.corregir(self.bib, clave, texto[:200])
+        self.ventana.buscador_fichas.despertar()
+        return {"aviso": "Buscando la ficha de nuevo… aparece en unos segundos"}
 
     def accion_quitar(self, ids):
         seleccion = self._archivos(ids)
