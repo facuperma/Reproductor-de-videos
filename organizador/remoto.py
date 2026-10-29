@@ -32,6 +32,7 @@ from .dominio_publico import (
     reintentar_descargas,
 )
 from .subtitulos_online import buscar_para_visor
+from .celular_pantalla import ErrorCelular
 from .titulos import nombre_lindo
 from .torrents import ErrorTorrent
 from .visor import TAMANOS_SUB, texto_progreso
@@ -136,6 +137,7 @@ class Remoto(QObject):
         self.servidor: ThreadingHTTPServer | None = None
         self.puerto = 0
         self.error = ""
+        self.ultima_ip: str | None = None  # del último celular que habló con TVon
         self._sesiones: dict[str, dict] = {}
         self._vistas: dict[str, float] = {}
         self._cerrojo = threading.Lock()
@@ -438,6 +440,8 @@ class _Manejador(BaseHTTPRequestHandler):
         token = self._token()
         if not self.remoto.sesion_valida(token):
             raise ErrorRemoto("Este celular no está conectado: escaneá el código QR de TVon (botón ON)", 401)
+        # Para ver la pantalla del celular en la PC sin cable (scrcpy se conecta a esta IP)
+        self.remoto.ultima_ip = self.client_address[0]
         return token
 
     def _emparejar(self):
@@ -666,6 +670,7 @@ class _Control:
             "apagado": {"segundos": max(0, apagado[1][0])} if apagado else None,
             "pantalla_completa": ventana.isFullScreen(),
             "ventana_visible": not ventana.isHidden(),
+            "celular_en_pc": ventana.pantalla_celular.ultimo,
             "arranca_con_windows": inicio_windows.activo(),
             "ventanas": len(ventana.ventanas_video),
             "mover_descargas": self.bib.config("mover_descargas") == "1",
@@ -1006,9 +1011,12 @@ class _Control:
         QDesktopServices.openUrl(QUrl(SITIOS[sitio]))
 
     def accion_mostrar_celular(self):
-        """Pantalla del celular en la PC: Windows la recibe por Miracast («Proyectar en este equipo»)."""
-        QDesktopServices.openUrl(QUrl("ms-settings:project"))
-        return {"aviso": "En la PC se abrió «Proyectar en este equipo»"}
+        """Pantalla del celular en la PC con scrcpy, por la red (la IP de este celular) o por cable."""
+        try:
+            self.ventana.pantalla_celular.mostrar(self.remoto.ultima_ip)
+        except ErrorCelular as e:
+            raise ErrorRemoto(str(e), 409) from e
+        return {"aviso": "Conectando… en unos segundos el celular aparece en la PC"}
 
     def accion_mover_descargas(self, activo):
         self.bib.guardar_config("mover_descargas", "1" if activo else "0")

@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.5.8.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.8.exe)** (33 MB)
+**[⬇ TVon-Setup-1.5.9.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.9.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -53,7 +53,7 @@ Botón **📱 ON** en la barra superior (o *Configuración → ON*; se pone verd
 - **Mouse:** el celular como touchpad, sin mirar la pantalla (ideal con la PC conectada a la tele): deslizar = mover el puntero, tocar = clic, tocar con dos dedos = clic derecho, deslizar con dos dedos = rueda. Botones **Izquierdo** y **Derecho** (manteniendo el izquierdo y deslizando se arrastra; 🔒 lo deja apretado) y velocidad ajustable.
 - **Teclado en vivo:** lo que escribís en el celular aparece en la PC letra por letra, con tildes, ñ, emojis y el autocorrector de Android. También hay modo *Escribir y enviar* y teclas especiales (Enter, Esc, flechas, Alt+Tab, Win, Ctrl+C/V, volumen…).
 - **Pantalla:** si hace falta, ves la pantalla de la PC en el celular y la manejás con el dedo: tocar = clic, dos toques = doble clic, mantener = clic derecho, deslizar = rueda, o el modo *Arrastrar*. Con teclado, teclas especiales (Enter, Esc, flechas, Alt+Tab…) y volumen de Windows. Calidad *Fluida* (25 cuadros por segundo), *Normal* (15) o *Nítida* (10); solo se muestran cuadros completos, sin cortes. Mientras el celular mira la pantalla, TVon lo avisa abajo con un botón para cortar.
-- **Celular → PC:** para ver la pantalla del celular en la PC (o la tele), TVon abre *Proyectar en este equipo* de Windows y el celular transmite con *Transmitir / Smart View* (Miracast). El navegador del celular no puede compartir su pantalla, por eso se usa lo de Windows.
+- **Celular → PC (sin Miracast):** ves el celular (Android) en una ventana de la PC y lo manejás con el mouse y el teclado, por la misma wifi o por cable, con [scrcpy](https://github.com/Genymobile/scrcpy) (viene incluido). Una sola vez: activar *Depuración USB* en las Opciones de desarrollador del celular. La primera vez se conecta por cable (tocás *Permitir* en el celular) y después sigue por wifi hasta que reinicies el celular; con Android 11+ también se puede vincular sin cable nunca (*Depuración inalámbrica*). Desde el celular: pestaña **Pantalla** → *Ver este celular en la PC*; en la PC: *Archivo → Pantalla del celular en la PC*.
 
 **Siempre conectado:** si cerrás la ventana de TVon con ON encendido, TVon queda junto al reloj y el celular sigue manejando el mouse y el teclado; para salir del todo, *Archivo → Salir* o el ícono junto al reloj. Con **Arrancar TVon con Windows** (en la ventana de ON o en *Más* del celular) arranca escondido y con ON encendido, así el celular siempre encuentra la PC. Desde el celular (*Más* o el aviso de arriba) se abre o esconde TVon en la PC. Si TVon ya está abierto, abrirlo de nuevo solo lo trae al frente.
 
@@ -162,5 +162,7 @@ Marcá **⏻ Apagar** en los controles: cuando termine el video (en el visor o e
 ## Licencia
 
 Código abierto bajo la [licencia MIT](LICENSE). © 2026 Faierwall.
+
+Incluye [scrcpy](https://github.com/Genymobile/scrcpy) 5.0.1 (con su adb) sin modificar, bajo la licencia Apache 2.0 (`organizador\bin\scrcpy\LICENSE.txt`).
 
 Incluye [aria2](https://github.com/aria2/aria2) 1.37.0 sin modificar, como programa aparte, bajo la licencia GPL v2 (`organizador\bin\aria2-LICENCIA.txt`). Su código fuente está en github.com/aria2/aria2.

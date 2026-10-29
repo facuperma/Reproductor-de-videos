@@ -265,12 +265,14 @@
       </div>
       <div id="celular-a-pc" class="tarjeta">
         <div class="tarjeta-titulo">📲 Pantalla del celular en la PC</div>
-        <p class="pista">Lo hace Windows por Miracast (el navegador del celular no puede compartir su pantalla):</p>
+        <p class="pista">Ves este celular en una ventana de la PC y lo manejás con el mouse y el teclado. Va por la misma wifi (o por cable), sin Miracast.</p>
         <ol class="pasos">
-          <li>Tocá el botón: en la PC se abre <b>Proyectar en este equipo</b>. Elegí <i>Disponible en todas partes</i> y abrí la app <b>Conectar</b> (si no está, Windows ofrece instalar «Pantalla inalámbrica»).</li>
-          <li>En el celular, bajá la barra de notificaciones y tocá <b>Transmitir</b> / <b>Smart View</b> / <b>Duplicar pantalla</b>, y elegí la PC.</li>
+          <li><b>Una sola vez:</b> Ajustes → Acerca del teléfono → tocá 7 veces <i>Número de compilación</i>. Después, en <i>Opciones de desarrollador</i>, activá <b>Depuración USB</b>.</li>
+          <li>La primera vez conectalo a la PC por cable, tocá el botón y en el celular tocá <b>Permitir</b>. Después ya va sin cable, hasta que reinicies el celular.</li>
+          <li>Android 11 o más nuevo, sin cable nunca: en la PC, <i>Archivo → Pantalla del celular</i> → vincular con <i>Depuración inalámbrica</i>.</li>
         </ol>
-        <button data-accion="mostrar_celular" class="boton ancho">📲 Preparar la PC para recibir</button>
+        <button data-accion="mostrar_celular" class="boton boton-primario ancho">📲 Ver este celular en la PC</button>
+        <p id="celular-en-pc" class="pista"></p>
       </div>
       <div id="pantalla-encendida" hidden>
         <div class="fila fila-repartida herramientas">

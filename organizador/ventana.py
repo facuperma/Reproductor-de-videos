@@ -25,6 +25,8 @@ from .dialogo_on import DialogoOn
 from .dominio_publico import VentanaDominioPublico, a_la_papelera, eliminar_video
 from .remoto import Remoto
 from .subtitulos import EXT_SUBTITULOS
+from .celular_pantalla import PantallaCelular
+from .dialogo_celular import DialogoCelular
 from .inicio_windows import traer_al_frente
 from .titulos import nombre_lindo, titulo_de
 from .torrents import GestorTorrents
@@ -79,6 +81,10 @@ class Ventana(QMainWindow):
         # Al cerrar con torrents bajando, TVon sigue junto al reloj hasta que terminan
         self._torrents_activos: list = []
         self.torrents_estado: list = []  # todas las descargas de torrents (para el celular)
+        # La pantalla del celular en la PC (scrcpy, sin Miracast)
+        self.pantalla_celular = PantallaCelular()
+        self.pantalla_celular.mensaje.connect(lambda m: self.statusBar().showMessage(m, 10000))
+        self.dialogo_celular: DialogoCelular | None = None
         self.bandeja: QSystemTrayIcon | None = None
         self._salir = False
         # (aviso, [segundos que faltan], botón «Apagar ahora») mientras corre la cuenta para apagar
@@ -310,6 +316,7 @@ class Ventana(QMainWindow):
         archivo.addAction("Abrir ubicación del archivo", self.abrir_ubicacion)
         archivo.addAction("Películas de dominio público…", self._abrir_dominio_publico)
         archivo.addAction("Torrents…", self._abrir_torrents)
+        archivo.addAction("📲 Pantalla del celular en la PC…", self._abrir_celular)
         archivo.addSeparator()
         # Cerrar la ventana con ON o torrents la deja junto al reloj; Salir cierra todo
         archivo.addAction("Salir", QKeySequence("Ctrl+Q"), self._salir_del_todo)
@@ -1214,7 +1221,9 @@ class Ventana(QMainWindow):
         self.vigilante.detener()
         self.torrents.detener()  # los torrents a medias se retoman al volver a abrir TVon
         self.remoto.detener()
-        for ventana in [*self.ventanas_video, self.ventana_dominio, self.ventana_torrents, self.dialogo_on, self.aviso]:
+        self.pantalla_celular.cerrar()
+        for ventana in [*self.ventanas_video, self.ventana_dominio, self.ventana_torrents, self.dialogo_on,
+                        self.dialogo_celular, self.aviso]:
             if ventana:
                 ventana.close()
         super().closeEvent(e)
@@ -1396,6 +1405,13 @@ class Ventana(QMainWindow):
         if self.remoto.al_iniciar and not self.remoto.iniciar():
             self.statusBar().showMessage(f"No se pudo encender ON: {self.remoto.error}", 10000)
         self._mostrar_on()
+
+    def _abrir_celular(self):
+        if self.dialogo_celular is None:
+            self.dialogo_celular = DialogoCelular(self.pantalla_celular, lambda: self.remoto.ultima_ip, self)
+        self.dialogo_celular.show()
+        self.dialogo_celular.raise_()
+        self.dialogo_celular.activateWindow()
 
     def _abrir_on(self):
         # Se abre ya encendido, con el código QR a la vista (si falla, la ventana muestra el motivo)
