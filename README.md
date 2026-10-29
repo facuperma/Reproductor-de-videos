@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.5.5.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.5.exe)** (33 MB)
+**[⬇ TVon-Setup-1.5.6.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.6.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -31,7 +31,7 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 - Los archivos no se copian ni se mueven: solo se guarda su ruta en `biblioteca.db`.
 - Panel izquierdo: filtrar por Todos / Videos / Imágenes / Sin categoría o por una categoría.
 - Seleccioná varios archivos arrastrando el mouse (o con Ctrl/Shift + clic) y con **clic derecho** asignalos a una categoría, quitalos de una o creá una nueva. En «Sin categoría» desaparecen al asignarlos.
-- Panel derecho: visor, ruta del archivo, "Abrir ubicación" y las categorías del archivo (se cambian con **✎ Editar**).
+- Panel derecho: visor y las categorías del archivo (se cambian con **✎ Editar**). La ruta se copia desde la lista: clic derecho → **📋 Copiar ruta** o **Ctrl+C** (con varios seleccionados, una ruta por línea).
 - La categoría **★ Favoritos** viene incluida y siempre está primera: sumá archivos con clic derecho → *Agregar a Favoritos*.
 - Un clic en un video muestra una **vista previa** (un cuadro del video, sin sonido): se reproduce con clic sobre la imagen, ▶ o Espacio, siempre desde el principio.
 - Al elegir una categoría se selecciona su primer video en vista previa, sin empezar a reproducirse.

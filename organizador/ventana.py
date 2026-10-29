@@ -161,6 +161,7 @@ class Ventana(QMainWindow):
         self.btn_eliminar.hide()
         QShortcut(QKeySequence.Delete, self.lista, activated=self._eliminar_del_disco,
                   context=Qt.WidgetShortcut)
+        QShortcut(QKeySequence.Copy, self.lista, activated=self._copiar_rutas, context=Qt.WidgetShortcut)
 
         self.centro = centro = QWidget()
         capa_centro = QVBoxLayout(centro)
@@ -188,15 +189,8 @@ class Ventana(QMainWindow):
 
         self.lbl_nombre = QLabel(objectName="titulo")
         self.lbl_nombre.setWordWrap(True)
-        self.txt_ruta = QLineEdit(readOnly=True, placeholderText="Ubicación del archivo")
-        btn_abrir = QPushButton("Abrir ubicación")
-        btn_copiar = QPushButton("Copiar ruta")
-        btn_abrir.clicked.connect(lambda: self.abrir_ubicacion())
-        btn_copiar.clicked.connect(lambda: QApplication.clipboard().setText(self.txt_ruta.text()))
-        fila_ruta = QHBoxLayout()
-        fila_ruta.addWidget(self.txt_ruta, 1)
-        fila_ruta.addWidget(btn_abrir)
-        fila_ruta.addWidget(btn_copiar)
+        # La ruta ya no va debajo del reproductor: se copia desde la lista (clic derecho o Ctrl+C)
+        # y la carpeta se abre tocando su vínculo
 
         # Solo las categorías del archivo; se cambian desde el menú «Editar»
         self.chips = QWidget()
@@ -232,7 +226,6 @@ class Ventana(QMainWindow):
         capa_det = QVBoxLayout(self.detalles)
         capa_det.setContentsMargins(0, 0, 0, 0)
         capa_det.addWidget(self.lbl_nombre)
-        capa_det.addLayout(fila_ruta)
         capa_det.addWidget(grupo_cat)
         capa_det.addLayout(fila_nav)
 
@@ -816,11 +809,18 @@ class Ventana(QMainWindow):
 
         menu.addSeparator()
         menu.addAction(self.btn_categoria_titulo.text(), self._categoria_desde_titulo)
+        menu.addAction("📋 Copiar ruta" if n == 1 else f"📋 Copiar rutas ({n})\tCtrl+C", self._copiar_rutas)
         if n == 1:
             menu.addAction("Abrir ubicación", lambda: self.abrir_ubicacion(seleccion[0][1]))
         menu.addAction(f"Quitar de la biblioteca ({n})", self._quitar_archivo)
         menu.addAction(f"🗑 Eliminar del disco ({n})…", self._eliminar_del_disco)
         menu.exec(self.lista.viewport().mapToGlobal(pos))
+
+    def _copiar_rutas(self):
+        rutas = [item.data(0, ROL)[1] for item in self.lista.selectedItems()]
+        if rutas:
+            QApplication.clipboard().setText("\n".join(rutas))
+            self.statusBar().showMessage("Ruta copiada" if len(rutas) == 1 else f"{len(rutas)} rutas copiadas", 4000)
 
     def asignar_seleccion(self, ids: list[int], cid: int, nombre: str, activa: bool):
         self.bib.asignar_varios(ids, cid, activa)
@@ -860,12 +860,10 @@ class Ventana(QMainWindow):
         self.detalles.setEnabled(datos is not None)
         if datos is None:
             self.lbl_nombre.setText("Ningún archivo seleccionado")
-            self.txt_ruta.clear()
         else:
             aid, ruta, tipo = datos
             self.lbl_nombre.setText(("🎬 " if tipo == "video" else "🖼 ") + Path(ruta).name)
-            self.txt_ruta.setText(ruta)
-            self.txt_ruta.setCursorPosition(0)
+            self.lbl_nombre.setToolTip(ruta)
         self._mostrar_categorias_archivo()
 
     def _nombre_categoria(self, cid: int, nombre: str) -> str:
@@ -1510,7 +1508,7 @@ class Ventana(QMainWindow):
         self.statusBar().showMessage(f"Descargada y agregada a la biblioteca: {Path(ruta).stem}", 8000)
 
     def abrir_ubicacion(self, ruta: str | None = None):
-        ruta = ruta or self.txt_ruta.text()
+        ruta = ruta or ((actual := self.archivo_actual()) and actual[1])
         if not ruta:
             return
         if not Path(ruta).exists():
