@@ -803,15 +803,17 @@ class Ventana(QMainWindow):
                 item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n})")
                 if dato[1] in self._vistas_mostradas:
                     item.setForeground(COLOR_VISTA)
-                elif videos.get(dato[1]) and dato[1] not in sin_pendiente:
+                elif videos.get(dato[1]) and dato[1] not in sin_pendiente and dato[1] != self.bib.favoritos:
                     item.setForeground(COLOR_PENDIENTE)
                 else:
                     item.setData(Qt.ForegroundRole, None)
 
     def _categorias_vistas(self) -> set[int]:
-        """Las categorías con videos que ya están todos vistos."""
+        """Las categorías con videos que ya están todos vistos. Favoritos es fija: nunca cuenta
+        como vista ni pendiente, siempre queda en blanco."""
         vistos = self.bib.vistos_por_categoria()
-        return {cid for cid, n in self.bib.videos_por_categoria().items() if vistos.get(cid, 0) >= n}
+        return {cid for cid, n in self.bib.videos_por_categoria().items()
+                if vistos.get(cid, 0) >= n and cid != self.bib.favoritos}
 
     def _sin_pendiente(self) -> set[int]:
         """Categorías a las que se les sacó a mano el amarillo de «por ver»."""
@@ -829,7 +831,9 @@ class Ventana(QMainWindow):
             menu.addAction("↺ Marcar como no vista", lambda: self._marcar_vistos(rutas, False))
         else:
             menu.addAction("✓ Marcar como vista", lambda: self._marcar_vistos(rutas, True)).setEnabled(bool(rutas))
-            if cid in self._sin_pendiente():
+            if cid == self.bib.favoritos:
+                pass  # fija: nunca va en amarillo
+            elif cid in self._sin_pendiente():
                 menu.addAction("Volver a marcarla como pendiente", lambda: self._alternar_pendiente(cid))
             else:
                 menu.addAction("Quitar el amarillo de pendiente", lambda: self._alternar_pendiente(cid)

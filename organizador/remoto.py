@@ -678,7 +678,8 @@ class _Control:
         def estado(cid: int) -> str | None:
             if cid in vistas:
                 return "vista"
-            return "pendiente" if videos.get(cid) and cid not in sin_pendiente else None
+            return ("pendiente" if videos.get(cid) and cid not in sin_pendiente and cid != self.bib.favoritos
+                    else None)
 
         return {
             "filtros": [{"filtro": f, "nombre": nombre, "cantidad": len(self.bib.listar_archivos(f))}
