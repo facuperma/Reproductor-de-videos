@@ -34,7 +34,8 @@ async function api(ruta, cuerpo) {
     r = await fetch(ruta, { cache: "no-store", ...opciones });
   } catch {
     marcarConexion(false);
-    throw new ErrorApi("No hay conexión con la PC. ¿TVon está abierto y con ON encendido?", 0);
+    throw new ErrorApi("No hay conexión con la PC. ¿TVon está abierto y con ON encendido? "
+      + "(Con «Arrancar TVon con Windows» en la ventana ON, siempre queda listo)", 0);
   }
   marcarConexion(true);
   if (r.status === 401) {
@@ -181,6 +182,11 @@ function mostrarEstado() {
   $("#aviso-apagado").hidden = !e.apagado;
   if (e.apagado) $("#apagado-segundos").textContent = e.apagado.segundos;
   $("#aviso-siguiente").hidden = !e.siguiente;
+  // TVon escondido junto al reloj (ON sigue): a un toque de abrirlo
+  $("#aviso-escondido").hidden = e.ventana_visible !== false || app.pestana === "mouse" || app.pestana === "pantalla";
+  $("#pc-estado").textContent = e.ventana_visible === false
+    ? "TVon está escondido junto al reloj de la PC." : "TVon está abierto en la PC.";
+  if (document.activeElement !== $("#chk-windows")) $("#chk-windows").checked = !!e.arranca_con_windows;
   if (e.siguiente) {
     $("#siguiente-texto").textContent = e.siguiente.texto;
     $("#siguiente-nombre").textContent = e.siguiente.nombre;
@@ -1318,6 +1324,8 @@ async function iniciar() {
     mostrarEmparejar("Celular desconectado.");
   });
   $("#host").textContent = location.host;
+  $("#chk-windows").addEventListener("change", (ev) =>
+    accion("arrancar_con_windows", { activo: ev.target.checked }).catch(() => { ev.target.checked = !ev.target.checked; }));
   prepararReproductor();
   prepararBiblioteca();
   prepararPeliculas();

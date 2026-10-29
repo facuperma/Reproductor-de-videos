@@ -25,7 +25,7 @@ from PySide6.QtGui import QDesktopServices, QImage, QImageReader
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtWidgets import QApplication
 
-from . import archive, pantalla_remota
+from . import archive, inicio_windows, pantalla_remota
 from .db import CATEGORIA_FAVORITOS
 from .dominio_publico import (
     ESTADOS, cancelar_descargas, eliminar_peliculas, peliculas_borrables, quitar_descargas,
@@ -665,6 +665,8 @@ class _Control:
             "apagar_al_terminar": ventana.chk_apagar.isChecked(),
             "apagado": {"segundos": max(0, apagado[1][0])} if apagado else None,
             "pantalla_completa": ventana.isFullScreen(),
+            "ventana_visible": not ventana.isHidden(),
+            "arranca_con_windows": inicio_windows.activo(),
             "ventanas": len(ventana.ventanas_video),
             "mover_descargas": self.bib.config("mover_descargas") == "1",
             "opensubtitles": bool(self.bib.config("os_api_key")),
@@ -756,10 +758,31 @@ class _Control:
 
     # Reproductor
 
+    # TVon en la PC: abrirlo (si quedó escondido junto al reloj) o esconderlo con ON encendido
+
+    def accion_mostrar_tvon(self):
+        self.ventana._volver_del_segundo_plano()
+
+    def accion_esconder_tvon(self):
+        self.ventana._pasar_a_segundo_plano()
+        return {"aviso": "TVon quedó junto al reloj; el celular sigue conectado"}
+
+    def accion_arrancar_con_windows(self, activo):
+        try:
+            inicio_windows.activar(bool(activo))
+        except OSError as e:
+            raise ErrorRemoto(f"No se pudo cambiar: {e}", 409) from e
+        if self.ventana.dialogo_on:
+            self.ventana.dialogo_on.chk_windows.blockSignals(True)
+            self.ventana.dialogo_on.chk_windows.setChecked(bool(activo))
+            self.ventana.dialogo_on.chk_windows.blockSignals(False)
+
     def accion_reproducir(self, id):
         (aid, ruta, tipo), = self._archivos([id])
         if not Path(ruta).exists():
             raise ErrorRemoto("El archivo ya no está en esa ubicación", 404)
+        if self.ventana.isHidden():
+            self.ventana._volver_del_segundo_plano()  # reproducir con TVon escondido no tiene sentido
         if self.visor.ruta_video != ruta:
             self.ventana.reproducir(ruta, tipo)
         elif self.visor.en_vista_previa:

@@ -3,9 +3,10 @@ import segno
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout,
+    QCheckBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QListWidget, QMessageBox, QPushButton, QVBoxLayout,
 )
 
+from . import inicio_windows
 from .remoto import Remoto
 
 
@@ -65,9 +66,16 @@ class DialogoOn(QDialog):
         self.chk_pantalla.toggled.connect(lambda v: self._opcion("on_pantalla", v))
         self.chk_control.toggled.connect(lambda v: self._opcion("on_control", v))
         self.chk_inicio.toggled.connect(lambda v: remoto.guardar_opcion("on_activo", v))
+        # Con esto el celular siempre encuentra a TVon (aunque no lo hayas abierto) y puede abrirlo
+        self.chk_windows = QCheckBox("Arrancar TVon con Windows, escondido junto al reloj y con ON encendido")
+        self.chk_windows.setToolTip("Así el celular siempre puede conectarse y abrir TVon en la PC.\n"
+                                    "Cerrar la ventana con ON encendido también lo deja junto al reloj.")
+        self.chk_windows.setChecked(inicio_windows.activo())
+        self.chk_windows.setEnabled(inicio_windows.DISPONIBLE)
+        self.chk_windows.toggled.connect(self._arrancar_con_windows)
         grupo_opciones = QGroupBox("Opciones")
         capa_opciones = QVBoxLayout(grupo_opciones)
-        for chk in (self.chk_pantalla, self.chk_control, self.chk_inicio):
+        for chk in (self.chk_pantalla, self.chk_control, self.chk_inicio, self.chk_windows):
             capa_opciones.addWidget(chk)
 
         self.lista_celulares = QListWidget()
@@ -106,6 +114,15 @@ class DialogoOn(QDialog):
 
     def _opcion(self, clave: str, activa: bool):
         self.remoto.guardar_opcion(clave, activa)
+
+    def _arrancar_con_windows(self, activa: bool):
+        try:
+            inicio_windows.activar(activa)
+        except OSError as e:
+            QMessageBox.warning(self, "Arrancar con Windows", f"No se pudo cambiar:\n{e}")
+            self.chk_windows.blockSignals(True)
+            self.chk_windows.setChecked(inicio_windows.activo())
+            self.chk_windows.blockSignals(False)
 
     def _alternar(self):
         if self.remoto.activo:

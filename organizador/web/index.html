@@ -41,6 +41,10 @@
       <button data-accion="apagar_ahora" class="boton boton-peligro">Apagar ahora</button>
     </div>
   </div>
+  <div id="aviso-escondido" class="banner" hidden>
+    <div><b>TVon está escondido en la PC</b><div class="pista">ON sigue: el mouse y el teclado andan.</div></div>
+    <div class="fila"><button data-accion="mostrar_tvon" class="boton boton-primario">Abrir TVon</button></div>
+  </div>
   <div id="aviso-siguiente" class="banner" hidden>
     <div><b id="siguiente-texto"></b><div id="siguiente-nombre" class="pista"></div></div>
     <div class="fila">
@@ -288,6 +292,16 @@
 
     <!-- Más -->
     <section id="pestana-mas" class="pestana" hidden>
+      <div class="tarjeta">
+        <div class="tarjeta-titulo">🖥 TVon en la PC <span class="on">● ON encendido</span></div>
+        <p id="pc-estado" class="pista"></p>
+        <div class="fila">
+          <button data-accion="mostrar_tvon" class="boton boton-primario">Abrir TVon en la PC</button>
+          <button data-accion="esconder_tvon" class="boton">Esconderlo (ON sigue)</button>
+        </div>
+        <label class="interruptor"><input id="chk-windows" type="checkbox"><span></span>Arrancar TVon con Windows, con ON encendido</label>
+        <p class="pista">Con esto el celular siempre encuentra la PC y puede abrir TVon, aunque no lo hayas abierto. Si cerrás la ventana de TVon con ON encendido, queda junto al reloj y el mouse y el teclado siguen andando.</p>
+      </div>
       <div class="tarjeta">
         <div class="tarjeta-titulo">Abrir en el navegador de la PC</div>
         <div class="fila">

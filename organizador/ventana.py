@@ -25,6 +25,7 @@ from .dialogo_on import DialogoOn
 from .dominio_publico import VentanaDominioPublico, a_la_papelera, eliminar_video
 from .remoto import Remoto
 from .subtitulos import EXT_SUBTITULOS
+from .inicio_windows import traer_al_frente
 from .titulos import nombre_lindo, titulo_de
 from .torrents import GestorTorrents
 from .descargas import nombre_seguro
@@ -310,7 +311,8 @@ class Ventana(QMainWindow):
         archivo.addAction("Películas de dominio público…", self._abrir_dominio_publico)
         archivo.addAction("Torrents…", self._abrir_torrents)
         archivo.addSeparator()
-        archivo.addAction("Salir", QKeySequence("Ctrl+Q"), self.close)
+        # Cerrar la ventana con ON o torrents la deja junto al reloj; Salir cierra todo
+        archivo.addAction("Salir", QKeySequence("Ctrl+Q"), self._salir_del_todo)
 
         vista = barra.addMenu("&Vista")
         # El atajo F ya lo maneja el reproductor: acá solo se muestra
@@ -1198,7 +1200,9 @@ class Ventana(QMainWindow):
             ventana.show()
 
     def closeEvent(self, e):
-        if not self._salir and self._torrents_activos:
+        # Con ON encendido o torrents bajando, cerrar la ventana la esconde junto al reloj:
+        # el celular sigue manejando el mouse y el teclado sin perder la conexión
+        if not self._salir and (self._torrents_activos or self.remoto.activo):
             e.ignore()
             self._pasar_a_segundo_plano()
             return
@@ -1238,22 +1242,20 @@ class Ventana(QMainWindow):
 
     # --- Segundo plano (junto al reloj de Windows) -------------------------------
 
-    def _pasar_a_segundo_plano(self):
-        """Se esconde junto al reloj para que los torrents sigan bajando; lo demás se frena."""
+    def _pasar_a_segundo_plano(self, avisar: bool = True):
+        """Se esconde junto al reloj: los torrents siguen bajando y ON sigue encendido
+        (el celular maneja el mouse y el teclado). El reproductor se frena."""
         self.visor.guardar_progreso()
         self.visor.mostrar(None, None)
         for ventana in [*self.ventanas_video, self.ventana_dominio, self.ventana_torrents, self.dialogo_on, self.aviso]:
             if ventana:
                 ventana.close()
-        if self.remoto.activo:
-            self.remoto.detener()
-            self._mostrar_on()
         QApplication.setQuitOnLastWindowClosed(False)
         if self.bandeja is None:
             self.bandeja = QSystemTrayIcon(QApplication.windowIcon(), self)
             menu = QMenu(self)
             menu.addAction("Abrir TVon", self._volver_del_segundo_plano)
-            menu.addAction("Salir (las descargas siguen al volver a abrirlo)", self._salir_del_todo)
+            menu.addAction("Salir (apaga ON; las descargas siguen al volver a abrirlo)", self._salir_del_todo)
             self.bandeja.setContextMenu(menu)
             self.bandeja.activated.connect(
                 lambda motivo: motivo in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick)
@@ -1261,17 +1263,33 @@ class Ventana(QMainWindow):
         self._actualizar_bandeja()
         self.bandeja.show()
         self.hide()
-        self.bandeja.showMessage(
-            "TVon sigue descargando",
-            "Se cierra solo cuando terminen los torrents. Para abrirlo, tocá el ícono junto al reloj.",
-            QSystemTrayIcon.Information, 8000)
+        if not avisar:
+            return
+        if self.remoto.activo:
+            self.bandeja.showMessage(
+                "TVon sigue con ON encendido",
+                "El celular sigue manejando la PC. Para abrir TVon, tocá el ícono junto al reloj "
+                "o «Abrir TVon» en el celular.", QSystemTrayIcon.Information, 8000)
+        else:
+            self.bandeja.showMessage(
+                "TVon sigue descargando",
+                "Se cierra solo cuando terminen los torrents. Para abrirlo, tocá el ícono junto al reloj.",
+                QSystemTrayIcon.Information, 8000)
+
+    def iniciar_en_segundo_plano(self):
+        """Al arrancar con Windows: ON encendido y TVon escondido junto al reloj."""
+        if not self.remoto.activo:
+            self.remoto.iniciar()
+        self._pasar_a_segundo_plano(avisar=False)
 
     def _volver_del_segundo_plano(self):
-        self.bandeja.hide()
+        if self.bandeja:
+            self.bandeja.hide()
         QApplication.setQuitOnLastWindowClosed(True)
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        # Vuelve como estaba (maximizada o no), solo que sin minimizar
+        self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+        self.show()
+        traer_al_frente(self)
 
     def _salir_del_todo(self):
         self._salir = True
@@ -1281,8 +1299,12 @@ class Ventana(QMainWindow):
     def _actualizar_bandeja(self):
         if not self.bandeja:
             return
-        self.bandeja.setToolTip("TVon · descargando\n" + self.acc_torrents.toolTip())
-        if self.isHidden() and not self._torrents_activos:
+        lineas = ["TVon"] + (["📱 ON encendido"] if self.remoto.activo else [])
+        if self._torrents_activos:
+            lineas.append(self.acc_torrents.toolTip())
+        self.bandeja.setToolTip("\n".join(lineas))
+        # Con ON encendido se queda esperando al celular; si no, se cierra al terminar las descargas
+        if self.isHidden() and not self._torrents_activos and not self.remoto.activo:
             # Un rato de margen para que se ubique la película y busque subtítulos
             self.bandeja.showMessage("Descargas terminadas",
                                      "Las películas ya están en tu carpeta de videos. TVon se cierra en un minuto.",
@@ -1290,7 +1312,7 @@ class Ventana(QMainWindow):
             QTimer.singleShot(60_000, self._cerrar_si_termino)
 
     def _cerrar_si_termino(self):
-        if self.isHidden() and not self._torrents_activos:
+        if self.isHidden() and not self._torrents_activos and not self.remoto.activo:
             self._salir_del_todo()
 
     def _insignia_torrents(self, descargas: list):

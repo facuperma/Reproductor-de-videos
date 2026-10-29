@@ -6,13 +6,12 @@ import struct
 from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice, Qt
-from PySide6.QtGui import QImage, QPainter, QPainterPath
+from PySide6.QtGui import QImage
 
 RAIZ = Path(__file__).resolve().parent.parent
 ORIGEN = RAIZ / "organizador" / "icono.png"
 DESTINO = RAIZ / "organizador" / "icono.ico"
 TAMANOS = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
-CHICO = 48  # hasta este tamaño se usa el logo recortado
 
 
 def reducir(imagen: QImage, lado: int) -> QImage:
@@ -24,22 +23,11 @@ def reducir(imagen: QImage, lado: int) -> QImage:
 
 
 def recortado(imagen: QImage) -> QImage:
-    """Para los tamaños chicos (barra de título, barra de tareas): solo el anillo con la TV,
-    sin la sombra ni el borde oscuro, así se ve más grande. Esquinas redondeadas."""
+    """El logo entero (cuadrado redondeado con su borde), sin el margen transparente de la
+    sombra: así ocupa todo el ícono y se ve más grande en cualquier tamaño."""
     lado = imagen.width()
-    margen = round(lado * 160 / 1024)  # el anillo va de 182 a 842 en el logo de 1024
-    recorte = imagen.copy(margen, margen, lado - 2 * margen, lado - 2 * margen)
-    resultado = QImage(recorte.size(), QImage.Format_ARGB32)
-    resultado.fill(Qt.transparent)
-    p = QPainter(resultado)
-    p.setRenderHint(QPainter.Antialiasing)
-    camino = QPainterPath()
-    radio = recorte.width() * 0.2
-    camino.addRoundedRect(0, 0, recorte.width(), recorte.height(), radio, radio)
-    p.setClipPath(camino)
-    p.drawImage(0, 0, recorte)
-    p.end()
-    return resultado
+    margen = round(lado * 60 / 1024)  # el cuadrado va de 72 a 952 en el logo de 1024
+    return imagen.copy(margen, margen, lado - 2 * margen, lado - 2 * margen)
 
 
 def png_de(imagen: QImage) -> bytes:
@@ -51,8 +39,8 @@ def png_de(imagen: QImage) -> bytes:
 
 def main():
     original = QImage(str(ORIGEN)).convertToFormat(QImage.Format_ARGB32)
-    chico = recortado(original)
-    imagenes = [png_de(reducir(chico if lado <= CHICO else original, lado)) for lado in TAMANOS]
+    sin_margen = recortado(original)
+    imagenes = [png_de(reducir(sin_margen, lado)) for lado in TAMANOS]
     # Formato ICO: cabecera, una entrada de 16 bytes por tamaño y los PNG a continuación
     cabecera = struct.pack("<HHH", 0, 1, len(TAMANOS))
     desplazamiento = len(cabecera) + 16 * len(TAMANOS)

@@ -3,13 +3,16 @@ import sys
 from pathlib import Path
 
 from PySide6.QtGui import QIcon
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
 from organizador.db import Biblioteca
+from organizador.inicio_windows import ARGUMENTO
 from organizador.tema import ESTILO
 from organizador.ventana import Ventana
 
-VERSION = "1.5.7"
+VERSION = "1.5.8"
+INSTANCIA = "TVon-una-sola-vez"
 
 # Empaquetado con PyInstaller, los recursos están en sys._MEIPASS
 RECURSOS = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
@@ -33,16 +36,46 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("TVon")
     app.setApplicationVersion(VERSION)
-    # El .ico trae los tamaños chicos recortados (solo el anillo con la TV): así el ícono de la
-    # barra de título y de la barra de tareas se ve más grande que achicando el logo entero
+    # El .ico trae el logo sin el margen de la sombra: en la barra de título se ve más grande
     icono = RECURSOS / "organizador" / "icono.ico"
     app.setWindowIcon(QIcon(str(icono if icono.exists() else RECURSOS / "organizador" / "icono.png")))
+    segundo_plano = ARGUMENTO in sys.argv
+    # Un solo TVon a la vez: si ya está abierto (p. ej. junto al reloj), se le pide que se muestre
+    if avisar_al_abierto(mostrar=not segundo_plano):
+        return
     app.setStyle("Fusion")
     app.setStyleSheet(ESTILO)
     biblioteca = Biblioteca(carpeta_datos() / "biblioteca.db")
     ventana = Ventana(biblioteca)
-    ventana.show()
+    servidor = QLocalServer()
+    QLocalServer.removeServer(INSTANCIA)
+    servidor.listen(INSTANCIA)
+    servidor.newConnection.connect(lambda: _pedido_de_otra_instancia(servidor, ventana))
+    if segundo_plano:
+        ventana.iniciar_en_segundo_plano()  # arrancó con Windows
+    else:
+        ventana.show()
     sys.exit(app.exec())
+
+
+def avisar_al_abierto(mostrar: bool) -> bool:
+    """True si ya hay un TVon abierto (y, si se pide, le dice que se muestre)."""
+    otro = QLocalSocket()
+    otro.connectToServer(INSTANCIA)
+    if not otro.waitForConnected(500):
+        return False
+    if mostrar:
+        otro.write(b"mostrar")
+        otro.waitForBytesWritten(500)
+    otro.disconnectFromServer()
+    return True
+
+
+def _pedido_de_otra_instancia(servidor: QLocalServer, ventana: Ventana):
+    conexion = servidor.nextPendingConnection()
+    if conexion.waitForReadyRead(500) and bytes(conexion.readAll()) == b"mostrar":
+        ventana._volver_del_segundo_plano()
+    conexion.disconnectFromServer()
 
 
 if __name__ == "__main__":
