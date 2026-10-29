@@ -583,10 +583,10 @@ function itemArchivo(a) {
     e.textContent = "★";
     li.append(e);
   }
-  // Como en la PC: el nombre en verde si ya se vio, amarillo si falta verlo (o quedó a medias)
-  if (a.tipo === "video" && a.existe) {
+  // Como en la PC: el nombre en verde si ya se vio, amarillo si quedó a medias
+  if (a.tipo === "video" && a.existe && a.visto) {
     li.classList.add(a.visto === "✓" ? "es-visto" : "es-pendiente");
-    if (a.visto && a.visto !== "✓") li.querySelector(".item-sub").textContent = `Vas por ${a.visto} · ${a.carpeta}`;
+    if (a.visto !== "✓") li.querySelector(".item-sub").textContent = `Vas por ${a.visto} · ${a.carpeta}`;
   }
   li.addEventListener("click", () => app.eligiendo ? alternarSeleccion(a.id, li) : menuArchivo(a));
   alMantener(li, () => { if (!app.eligiendo) { app.eligiendo = true; alternarSeleccion(a.id, li); } });
@@ -628,11 +628,6 @@ function menuArchivo(a) {
   opciones.push(
     { texto: esFav ? "☆ Quitar de Favoritos" : "★ Agregar a Favoritos",
       hacer: async () => { await accion("favoritos", { ids: [a.id], activo: !esFav }); cargarBiblioteca(); } },
-    // Un capítulo de una serie: la serie entera a Favoritos
-    ...app.biblioteca.categorias.filter((c) => !c.fija && !c.en_favoritos && a.categorias.includes(c.id)).map((c) => ({
-      texto: `★ Agregar toda «${c.nombre}» a Favoritos`,
-      hacer: async () => { await accion("categoria_favoritos", { id: c.id, activo: true }); cargarBiblioteca(); },
-    })),
     { texto: "🏷 Categorías…", hacer: () => menuCategorias([a.id], a.categorias) },
     { texto: "＋ Categoría con el título", hacer: async () => { await accion("categoria_titulo", { id: a.id }); cargarBiblioteca(); } },
     { texto: "⧉ Abrir en una ventana aparte", hacer: () => accion("abrir_ventana", { id: a.id }) },

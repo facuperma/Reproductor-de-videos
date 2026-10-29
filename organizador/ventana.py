@@ -730,12 +730,18 @@ class Ventana(QMainWindow):
         self._refrescar_progreso(ruta)
 
     def _pintar_visto(self, item: QTreeWidgetItem, progreso):
-        """Como las categorías: verde si ya se vio, amarillo si falta verlo (o quedó a medias).
+        """Verde si ya se vio, amarillo si quedó a medias; sin empezar, el color normal.
         Cuánto se vio va en el cartelito del nombre."""
         visto = bool(progreso and progreso[2])
+        texto = texto_progreso(progreso)
         item.setData(0, ROL_VISTO, visto)
-        item.setForeground(0, COLOR_VISTA if visto else COLOR_PENDIENTE)
-        detalle = "✓ Visto" if visto else (f"Vas por {texto}" if (texto := texto_progreso(progreso)) else "Sin ver")
+        if visto:
+            item.setForeground(0, COLOR_VISTA)
+        elif texto:
+            item.setForeground(0, COLOR_PENDIENTE)
+        else:
+            item.setData(0, Qt.ForegroundRole, None)
+        detalle = "✓ Visto" if visto else (f"Vas por {texto}" if texto else "Sin ver")
         item.setToolTip(0, f"{item.data(0, ROL)[1]}\n{detalle}")
 
     def _refrescar_progreso(self, ruta: str, *_):
@@ -793,13 +799,6 @@ class Ventana(QMainWindow):
         else:
             menu.addAction(f"★ Agregar a {CATEGORIA_FAVORITOS} ({n})", lambda: self.asignar_seleccion(
                 ids, self.bib.favoritos, CATEGORIA_FAVORITOS, True))
-        # Un capítulo de una serie: ofrecer la serie entera
-        if n == 1:
-            for cid, nombre, _ in categorias:
-                if cid != self.bib.favoritos and cid in self.bib.categorias_de(ids[0]) \
-                        and not self._categoria_en_favoritos(cid):
-                    menu.addAction(f"★ Agregar toda «{nombre}» a {CATEGORIA_FAVORITOS}",
-                                   lambda c=cid: self.categoria_a_favoritos(c, True))
         asignar = menu.addMenu(f"Asignar a categoría ({n})")
         for cid, nombre, _ in categorias:
             asignar.addAction(nombre, lambda c=cid, nom=nombre: self.asignar_seleccion(ids, c, nom, True))
