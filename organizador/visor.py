@@ -1,8 +1,9 @@
 """Panel que muestra una imagen o reproduce un video con sus controles y subtítulos."""
 import math
+import re
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QLocale, QPointF, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QFont, QFontMetrics, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut,
 )
@@ -24,6 +25,11 @@ SI_ES_LARGO = "si_es_largo"     # vista previa, salvo que dure más que DURACION
 DURACION_LARGA_MS = 3_600_000
 
 LOGO = Path(__file__).parent / "icono.png"
+
+# Líneas que los sitios agregan al final de los subtítulos: no son diálogo
+PUBLICIDAD_SUB = re.compile(
+    r"(?i)opensubtitles|subdivx|addic7ed|www\.|\.com\b|\.org\b|\.net\b|subt[ií]tul|subtitle|"
+    r"traduc|sincroniza|synced|corrected|ripped|advertise|support us")
 
 
 def texto_sincronia(ms: int) -> str:
@@ -302,9 +308,14 @@ class Visor(QWidget):
     pedir_apagado = Signal()
     # (ruta del video, posición ms, duración ms): hasta dónde se vio, para retomarlo
     progreso = Signal(str, int, int)
+    # Tamaño en píxeles del video que se acaba de abrir (con el primer cuadro)
+    tamano_video = Signal(QSize)
 
     # El aviso del siguiente capítulo aparece cuando falta esto para el final
     AVISO_SIGUIENTE_MS = 5_000
+    # Con subtítulos, aparece antes: cuando termina el último diálogo (arrancan los créditos),
+    # si después quedan al menos estos milisegundos de video
+    CREDITOS_MINIMO_MS = 20_000
 
     def __init__(self):
         super().__init__()
@@ -324,6 +335,8 @@ class Visor(QWidget):
         self.subs: Subtitulos | None = None
         self.ruta_sub: str | None = None
         self.retraso_ms = 0
+        self._fin_dialogo: int | None = None  # fin del último subtítulo que es diálogo
+        self._tamano_avisado = False
         self._es_video = False
         self._modo_completo = False
 
@@ -492,6 +505,7 @@ class Visor(QWidget):
         self._descartar_subtitulos()
         self.ruta_video = None
         self._es_video = False
+        self._tamano_avisado = False
         self._modo = modo
         self._vista_previa = modo != REPRODUCIR
         self.pantalla.portada = False
@@ -638,6 +652,7 @@ class Visor(QWidget):
             return False
         self.reproductor.setActiveSubtitleTrack(-1)
         self.subs, self.ruta_sub = subs, ruta_sub
+        self._fin_dialogo = max((b for _a, b, t in subs.cues if not PUBLICIDAD_SUB.search(t)), default=None)
         self.lbl_sub.setText(f"Subtítulos: {Path(ruta_sub).name}")
         self.lbl_sub.setToolTip(ruta_sub)
         self._poner_retraso(retraso_ms)
@@ -683,6 +698,7 @@ class Visor(QWidget):
 
     def _descartar_subtitulos(self):
         self.subs = self.ruta_sub = None
+        self._fin_dialogo = None
         self._poner_retraso(0)
         self.pantalla.set_texto("")
 
@@ -774,6 +790,9 @@ class Visor(QWidget):
     def _nuevo_frame(self, frame):
         self._actualizar_subtitulo()
         self.pantalla.set_frame(frame)
+        if not self._tamano_avisado and self._es_video and frame.isValid():
+            self._tamano_avisado = True
+            self.tamano_video.emit(frame.size())
 
     def _salida_audio_cambiada(self):
         self.audio.setDevice(QMediaDevices.defaultAudioOutput())
@@ -877,7 +896,7 @@ class Visor(QWidget):
             self.panel_sig.hide()
             return
         restante = dur - pos
-        if restante > self.AVISO_SIGUIENTE_MS:
+        if restante > self.AVISO_SIGUIENTE_MS and not self._en_creditos(pos, dur):
             self.panel_sig.hide()
             return
         if self._ruta_siguiente is None:
@@ -887,10 +906,22 @@ class Visor(QWidget):
                 return
             self.lbl_sig_nombre.setText(Path(self._ruta_siguiente).stem)
         que = "Siguiente de la cola" if self._ruta_siguiente in self.cola else "Siguiente capítulo"
-        self.lbl_sig_cuenta.setText(f"{que} en {max(1, math.ceil(restante / 1000))} s")
+        # Durante los créditos queda a mano; la cuenta regresiva, solo en los últimos segundos
+        if restante > self.AVISO_SIGUIENTE_MS:
+            self.lbl_sig_cuenta.setText(que)
+        else:
+            self.lbl_sig_cuenta.setText(f"{que} en {max(1, math.ceil(restante / 1000))} s")
         if not self.panel_sig.isVisible():
             self.panel_sig.show()
-            self.pantalla.colocar_panel()
+        self.pantalla.colocar_panel()
+
+    def _en_creditos(self, pos: int, dur: int) -> bool:
+        """Ya terminó el último diálogo de los subtítulos: lo que queda son los créditos.
+        Solo si eso pasa en el último tercio, para no confundir un final sin diálogos."""
+        if self._fin_dialogo is None:
+            return False
+        fin = self._fin_dialogo + self.retraso_ms
+        return dur * 2 // 3 <= fin <= dur - self.CREDITOS_MINIMO_MS and pos >= fin
 
     def _fin_del_video(self):
         if self.apagar_al_terminar:

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 
@@ -9,7 +9,7 @@ from organizador.db import Biblioteca
 from organizador.tema import ESTILO
 from organizador.ventana import Ventana
 
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 
 # Empaquetado con PyInstaller, los recursos están en sys._MEIPASS
 RECURSOS = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))

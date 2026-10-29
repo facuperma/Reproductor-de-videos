@@ -1,13 +1,14 @@
 """Ventana principal: filtros/categorías, lista de archivos, visor y detalles."""
 import platform
 import shutil
+from collections import Counter
 from html import escape
 import subprocess
 import sys
 from pathlib import Path
 
 from PySide6 import __version__ as VERSION_QT
-from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer, QUrl, QUrlQuery
+from PySide6.QtCore import QEvent, QItemSelectionModel, QPoint, Qt, QTimer, QUrl, QUrlQuery
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout,
@@ -34,6 +35,8 @@ from .ventana_video import VentanaVideo
 from .visor import REPRODUCIR, VISTA_PREVIA, Visor, atajos_reproductor, texto_progreso
 
 ROL = Qt.UserRole
+# En las cabeceras «Sin ver» / «Vistas» de la lista: qué grupo es
+ROL_GRUPO = Qt.UserRole + 1
 FILTROS_FIJOS = {
     ("todos", None): "Todos",
     ("video", None): "Videos",
@@ -87,7 +90,7 @@ class Ventana(QMainWindow):
         self.lista_filtros = QListWidget()
         self.lista_filtros.currentItemChanged.connect(self._filtro_cambiado)
         self.lista_filtros.itemDoubleClicked.connect(lambda _: self._renombrar_categoria())
-        btn_nueva = QPushButton("+ Nueva")
+        btn_nueva = QPushButton("+ Nueva categoría")
         btn_renombrar = QPushButton("Renombrar")
         btn_borrar = QPushButton("Borrar")
         btn_nueva.clicked.connect(self._nueva_categoria)
@@ -98,8 +101,9 @@ class Ventana(QMainWindow):
         capa_izq = QVBoxLayout(izq)
         capa_izq.addWidget(QLabel("Biblioteca y categorías", objectName="titulo"))
         capa_izq.addWidget(self.lista_filtros, 1)
+        capa_izq.addWidget(btn_nueva)
         fila = QHBoxLayout()
-        for b in (btn_nueva, btn_renombrar, btn_borrar):
+        for b in (btn_renombrar, btn_borrar):
             fila.addWidget(b)
         capa_izq.addLayout(fila)
 
@@ -118,6 +122,8 @@ class Ventana(QMainWindow):
         self.lista.setContextMenuPolicy(Qt.CustomContextMenu)
         self.lista.customContextMenuRequested.connect(self._menu_archivos)
         self.lista.itemSelectionChanged.connect(self._actualizar_boton_titulo)
+        # Clic en una cabecera «Sin ver» / «Vistas»: ocultar o mostrar ese grupo
+        self.lista.viewport().installEventFilter(self)
         self.lbl_cantidad = QLabel()
         # Con un solo archivo seleccionado: crear una categoría con el título de la película o serie
         self.btn_categoria_titulo = QPushButton(objectName="chico")
@@ -478,22 +484,30 @@ class Ventana(QMainWindow):
         gris = QBrush(QColor("#7a8599"))
         progresos = self.bib.progresos()
         vistas = [f for f in filas if f[3] == "video" and progresos.get(f[1], (0, 0, False))[2]]
-        # Con algo ya visto, la lista se separa en «Sin ver» y «Vistas» (cada parte en su orden)
-        grupos = [(None, filas)]
+        # Con algo ya visto, la lista se separa en «Sin ver» y «Vistas» (cada parte en su orden).
+        # Cada grupo se oculta con un clic en su cabecera; «Vistas» puede ir arriba o abajo.
+        grupos = [(None, None, filas)]
         if vistas:
             ids_vistas = {f[0] for f in vistas}
             sin_ver = [f for f in filas if f[0] not in ids_vistas]
-            grupos = [(f"SIN VER  ({len(sin_ver)})", sin_ver), (f"✓ VISTAS  ({len(vistas)})", vistas)]
+            grupos = [("sin_ver", f"SIN VER  ({len(sin_ver)})", sin_ver),
+                      ("vistas", f"✓ VISTAS  ({len(vistas)})", vistas)]
+            if self.bib.config("vistas_arriba") == "1":
+                grupos.reverse()
+        plegados = self._grupos_plegados()
 
         self.lista.blockSignals(True)
         self.lista.clear()
         seleccionar = None
-        for titulo, grupo in grupos:
+        for clave, titulo, grupo in grupos:
+            plegado = clave in plegados
             if titulo:
                 if not grupo:
                     continue
-                cabecera = QTreeWidgetItem([titulo])
+                cabecera = QTreeWidgetItem([("▸ " if plegado else "▾ ") + titulo])
                 cabecera.setFlags(Qt.NoItemFlags)
+                cabecera.setData(0, ROL_GRUPO, clave)
+                cabecera.setToolTip(0, "Clic para ocultar o mostrar · clic derecho para moverla")
                 fuente = QFont(cabecera.font(0))
                 fuente.setBold(True)
                 cabecera.setFont(0, fuente)
@@ -511,6 +525,7 @@ class Ventana(QMainWindow):
                     item.setForeground(0, gris)
                     item.setText(2, f"{carpeta}  (no encontrado)")
                 self.lista.addTopLevelItem(item)
+                item.setHidden(plegado)
                 if aid == id_actual:
                     seleccionar = item
                 if aid in ids_seleccionados:
@@ -532,6 +547,34 @@ class Ventana(QMainWindow):
         """Los archivos de la lista, sin las cabeceras «Sin ver» / «Vistas»."""
         items = (self.lista.topLevelItem(i) for i in range(self.lista.topLevelItemCount()))
         return [it for it in items if it.data(0, ROL)]
+
+    def _grupos_plegados(self) -> set[str]:
+        return set(filter(None, self.bib.config("grupos_plegados").split(",")))
+
+    def _plegar_grupo(self, clave: str):
+        self.bib.guardar_config("grupos_plegados", ",".join(sorted(self._grupos_plegados() ^ {clave})))
+        self._cargar_archivos()
+
+    def _mover_vistas(self):
+        self.bib.guardar_config("vistas_arriba", "0" if self.bib.config("vistas_arriba") == "1" else "1")
+        self._cargar_archivos()
+
+    def _menu_grupo(self, clave: str, pos):
+        menu = QMenu(self)
+        plegado = clave in self._grupos_plegados()
+        menu.addAction("Mostrar" if plegado else "Ocultar", lambda: self._plegar_grupo(clave))
+        arriba = self.bib.config("vistas_arriba") == "1"
+        menu.addAction("Poner «Vistas» abajo" if arriba else "Poner «Vistas» arriba", self._mover_vistas)
+        menu.exec(self.lista.viewport().mapToGlobal(pos))
+
+    def eventFilter(self, objeto, e):
+        if (objeto is self.lista.viewport() and e.type() == QEvent.MouseButtonPress
+                and e.button() == Qt.LeftButton):
+            item = self.lista.itemAt(e.position().toPoint())
+            if item is not None and (clave := item.data(0, ROL_GRUPO)):
+                self._plegar_grupo(clave)
+                return True
+        return super().eventFilter(objeto, e)
 
     def _progreso(self, ruta: str, posicion_ms: int, duracion_ms: int):
         self.bib.guardar_progreso(ruta, posicion_ms, duracion_ms)
@@ -562,6 +605,9 @@ class Ventana(QMainWindow):
     def _menu_archivos(self, pos):
         item = self.lista.itemAt(pos)
         if item is None:
+            return
+        if clave := item.data(0, ROL_GRUPO):
+            self._menu_grupo(clave, pos)
             return
         if not item.isSelected():
             # Seleccionar sin cambiar el archivo actual, así no se corta el video que se está viendo
@@ -605,8 +651,8 @@ class Ventana(QMainWindow):
         quitar.setEnabled(bool(presentes))
 
         menu.addSeparator()
+        menu.addAction(self.btn_categoria_titulo.text(), self._categoria_desde_titulo)
         if n == 1:
-            menu.addAction(self.btn_categoria_titulo.text(), self._categoria_desde_titulo)
             menu.addAction("Abrir ubicación", lambda: self.abrir_ubicacion(seleccion[0][1]))
         menu.addAction(f"Quitar de la biblioteca ({n})", self._quitar_archivo)
         menu.addAction(f"🗑 Eliminar del disco ({n})…", self._eliminar_del_disco)
@@ -717,7 +763,7 @@ class Ventana(QMainWindow):
                 item.setText(f"  {self._nombre_categoria(dato[1], nombre)}  ({n}" + (f" · {v} ✓)" if v else ")"))
 
     def mover(self, paso: int):
-        items = self._items()
+        items = [it for it in self._items() if not it.isHidden()]
         if not items:
             return
         actual = items.index(self.lista.currentItem()) if self.lista.currentItem() in items else -1
@@ -1141,22 +1187,39 @@ class Ventana(QMainWindow):
             self.btn_categoria_titulo.setToolTip(
                 f"Crea la categoría «{titulo}» y le asigna este archivo y los demás con el mismo título")
             self.btn_categoria_titulo.show()
+        elif seleccion:
+            titulo = self._titulo_seleccion(seleccion)
+            self.btn_categoria_titulo.setText(f"＋ Crear categoría: {titulo} ({len(seleccion)})")
+            self.btn_categoria_titulo.setToolTip(
+                f"Crea la categoría «{titulo}» y mete en ella los {len(seleccion)} archivos seleccionados")
+            self.btn_categoria_titulo.show()
         else:
             self.btn_categoria_titulo.hide()
+
+    @staticmethod
+    def _titulo_seleccion(seleccion: list[QTreeWidgetItem]) -> str:
+        """El título de serie que más se repite entre los archivos seleccionados."""
+        return Counter(titulo_de(it.text(0)) for it in seleccion).most_common(1)[0][0]
 
     def _categoria_desde_titulo(self):
         seleccion = self.lista.selectedItems()
         if len(seleccion) == 1:
             self.categoria_desde_titulo(seleccion[0].text(0))
+        elif seleccion:
+            titulo = self._titulo_seleccion(seleccion)
+            modelo = next(it for it in seleccion if titulo_de(it.text(0)) == titulo)
+            self.categoria_desde_titulo(modelo.text(0), [it.data(0, ROL) for it in seleccion])
 
-    def categoria_desde_titulo(self, nombre_archivo: str) -> str:
-        """Crea (o completa) la categoría con el título de la película o serie; devuelve el aviso."""
+    def categoria_desde_titulo(self, nombre_archivo: str, archivos: list | None = None) -> str:
+        """Crea (o completa) la categoría con el título de la película o serie; devuelve el aviso.
+        archivos: (id, ruta, tipo) que van a la categoría; sin ellos, todos los del mismo título."""
         titulo = titulo_de(nombre_archivo)
         existia = any(nombre.lower() == titulo.lower() for _, nombre, _ in self.bib.listar_categorias())
         cid = self.bib.categoria_id(titulo)
         # También los demás capítulos de la misma serie (mismo título)
-        archivos = [(aid, ruta, tipo) for aid, ruta, nombre, tipo in self.bib.listar_archivos()
-                    if titulo_de(nombre).lower() == titulo.lower()]
+        if archivos is None:
+            archivos = [(aid, ruta, tipo) for aid, ruta, nombre, tipo in self.bib.listar_archivos()
+                        if titulo_de(nombre).lower() == titulo.lower()]
         ids = [aid for aid, _ruta, _tipo in archivos]
         self.bib.asignar_varios(ids, cid, True)
         movidos, quedaron = self._organizar_en_carpeta([r for _a, r, t in archivos if t == "video"], titulo)

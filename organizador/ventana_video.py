@@ -1,7 +1,7 @@
 """Ventana flotante con su propio reproductor, para ver varios videos a la vez."""
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
 
 from .db import Biblioteca
@@ -25,6 +25,7 @@ class VentanaVideo(QWidget):
         self.visor.progreso.connect(bib.guardar_progreso)
         self.visor.pedir_pantalla_completa.connect(self.alternar_pantalla_completa)
         self.visor.buscar_subtitulos_online.connect(lambda _: buscar_para_visor(self.visor, bib, self))
+        self.visor.tamano_video.connect(self._ajustar_al_video)
         self.btn_fijar = QPushButton("📌", checkable=True, toolTip="Mantener siempre visible")
         self.btn_fijar.toggled.connect(self._fijar)
         self.visor.agregar_control(self.btn_fijar)
@@ -40,6 +41,26 @@ class VentanaVideo(QWidget):
     def abrir(self, ruta: str, tipo: str, posicion_ms: int = 0):
         self.setWindowTitle(f"{Path(ruta).name} — TVon")
         self.visor.mostrar(ruta, tipo, self.bib.subtitulos_de(ruta), posicion_ms or self.bib.posicion_guardada(ruta))
+
+    def _ajustar_al_video(self, tamano: QSize):
+        """En modo ventana, la ventana toma el tamaño del video (sin pasarse de la pantalla)
+        y queda centrada donde estaba."""
+        if self.isFullScreen() or self.isMaximized() or tamano.isEmpty():
+            return
+        pantalla = self.screen().availableGeometry()
+        extra = self.height() - self.visor.pantalla.height()  # controles y barra de subtítulos
+        marco = self.frameGeometry().size() - self.size()     # bordes y barra de título
+        maximo = QSize(int(pantalla.width() * 0.85), int(pantalla.height() * 0.85) - extra - marco.height())
+        video = tamano.scaled(maximo, Qt.KeepAspectRatio) if (
+            tamano.width() > maximo.width() or tamano.height() > maximo.height()) else tamano
+        nuevo = QSize(max(video.width(), 480), video.height() + extra)
+        geometria = QRect(0, 0, nuevo.width(), nuevo.height())
+        geometria.moveCenter(self.geometry().center())
+        # Que no se salga de la pantalla
+        geometria.moveLeft(max(pantalla.left(), min(geometria.left(), pantalla.right() - geometria.width())))
+        geometria.moveTop(max(pantalla.top() + marco.height(),
+                              min(geometria.top(), pantalla.bottom() - geometria.height())))
+        self.setGeometry(geometria)
 
     def alternar_pantalla_completa(self):
         completa = not self.isFullScreen()
