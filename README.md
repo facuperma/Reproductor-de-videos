@@ -6,7 +6,7 @@ Aplicación de escritorio para organizar y ver videos e imágenes por categoría
 
 ## Descargar (Windows 10/11, 64 bits)
 
-**[⬇ TVon-Setup-1.5.6.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.6.exe)** (33 MB)
+**[⬇ TVon-Setup-1.5.7.exe](https://github.com/facuperma/Reproductor-de-videos/raw/main/instalador/TVon-Setup-1.5.7.exe)** (33 MB)
 
 Ejecutalo y seguí los pasos: no hace falta instalar Python ni nada más, ni permisos de administrador. Crea accesos directos en el menú Inicio (y en el Escritorio, si lo elegís) y se desinstala desde *Configuración → Aplicaciones*.
 
@@ -35,6 +35,7 @@ Para generar el instalador: `.venv\Scripts\pip install pyinstaller` y `.venv\Scr
 - La categoría **★ Favoritos** viene incluida y siempre está primera: sumá archivos con clic derecho → *Agregar a Favoritos*.
 - Un clic en un video muestra una **vista previa** (un cuadro del video, sin sonido): se reproduce con clic sobre la imagen, ▶ o Espacio, siempre desde el principio.
 - Al elegir una categoría se selecciona su primer video en vista previa, sin empezar a reproducirse.
+- Nombres lindos: la lista muestra el título limpio, como la categoría rápida, con el capítulo, el año y la calidad si el archivo los trae («Breaking.Bad.S01E02.720p.WEB-DL.mkv» → «Breaking Bad · S01E02 · 720p», «The.Matrix.1999.1080p.BluRay.mkv» → «The Matrix (1999) · 1080p»). El archivo en el disco no se toca; su ruta aparece al pasar el mouse.
 - Columnas de la lista (**Nombre** y **Carpeta**): se achican, agrandan y mueven arrastrando; clic derecho en la cabecera para ocultar o mostrar cada una. TVon recuerda cómo las dejaste. La carpeta es un vínculo: tocarla abre el Explorador con el video marcado.
 - Volumen: el porcentaje se ve al lado de la barra y, al moverlo, grande sobre el video. TVon arranca al 50 %.
 - Menú superior: **Archivo**, **Vista** (ocultar paneles, pantalla completa), **Configuración**, **Acerca de** (versión) y **Reportar un bug** (abre un issue en GitHub con la versión ya completa).

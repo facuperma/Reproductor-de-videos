@@ -25,7 +25,7 @@ from .dialogo_on import DialogoOn
 from .dominio_publico import VentanaDominioPublico, a_la_papelera, eliminar_video
 from .remoto import Remoto
 from .subtitulos import EXT_SUBTITULOS
-from .titulos import titulo_de
+from .titulos import nombre_lindo, titulo_de
 from .torrents import GestorTorrents
 from .descargas import nombre_seguro
 from .vigilancia import Vigilante, borrar_carpetas_vacias, en_uso, mover_video
@@ -39,6 +39,13 @@ ROL = Qt.UserRole
 ROL_GRUPO = Qt.UserRole + 1
 # En los videos de la lista: si ya se vio (para saber cuándo cambiarlo de grupo)
 ROL_VISTO = Qt.UserRole + 2
+
+
+def _archivo(item: QTreeWidgetItem) -> str:
+    """El nombre real del archivo (la lista muestra el título limpio)."""
+    return Path(item.data(0, ROL)[1]).name
+
+
 # Categorías en la columna izquierda: lo que queda por ver y lo ya visto
 COLOR_PENDIENTE = QColor("#facc15")
 COLOR_VISTA = QColor("#86efac")
@@ -562,7 +569,8 @@ class Ventana(QMainWindow):
             for aid, ruta, nombre, tipo in grupo:
                 carpeta = str(Path(ruta).parent)
                 columna = self.COLUMNA_CARPETA
-                item = QTreeWidgetItem([nombre, carpeta])
+                # Se muestra el título limpio (con capítulo, año y calidad); el nombre real, al pasar el mouse
+                item = QTreeWidgetItem([nombre_lindo(nombre), carpeta])
                 item.setIcon(0, icono_video if tipo == "video" else icono_imagen)
                 item.setData(0, ROL, (aid, ruta, tipo))
                 item.setToolTip(columna, "Abrir la carpeta en el Explorador")
@@ -862,7 +870,7 @@ class Ventana(QMainWindow):
             self.lbl_nombre.setText("Ningún archivo seleccionado")
         else:
             aid, ruta, tipo = datos
-            self.lbl_nombre.setText(("🎬 " if tipo == "video" else "🖼 ") + Path(ruta).name)
+            self.lbl_nombre.setText(("🎬 " if tipo == "video" else "🖼 ") + nombre_lindo(Path(ruta).name))
             self.lbl_nombre.setToolTip(ruta)
         self._mostrar_categorias_archivo()
 
@@ -1410,7 +1418,7 @@ class Ventana(QMainWindow):
         self.btn_eliminar.setVisible(bool(seleccion))
         self.btn_eliminar.setText(f"🗑 Eliminar ({len(seleccion)})" if len(seleccion) > 1 else "🗑 Eliminar")
         if len(seleccion) == 1:
-            titulo = titulo_de(seleccion[0].text(0))
+            titulo = titulo_de(_archivo(seleccion[0]))
             self.btn_categoria_titulo.setText(f"＋ Categoría: {titulo}")
             self.btn_categoria_titulo.setToolTip(
                 f"Crea la categoría «{titulo}» y le asigna este archivo y los demás con el mismo título")
@@ -1427,16 +1435,16 @@ class Ventana(QMainWindow):
     @staticmethod
     def _titulo_seleccion(seleccion: list[QTreeWidgetItem]) -> str:
         """El título de serie que más se repite entre los archivos seleccionados."""
-        return Counter(titulo_de(it.text(0)) for it in seleccion).most_common(1)[0][0]
+        return Counter(titulo_de(_archivo(it)) for it in seleccion).most_common(1)[0][0]
 
     def _categoria_desde_titulo(self):
         seleccion = self.lista.selectedItems()
         if len(seleccion) == 1:
-            self.categoria_desde_titulo(seleccion[0].text(0))
+            self.categoria_desde_titulo(_archivo(seleccion[0]))
         elif seleccion:
             titulo = self._titulo_seleccion(seleccion)
-            modelo = next(it for it in seleccion if titulo_de(it.text(0)) == titulo)
-            self.categoria_desde_titulo(modelo.text(0), [it.data(0, ROL) for it in seleccion])
+            modelo = next(it for it in seleccion if titulo_de(_archivo(it)) == titulo)
+            self.categoria_desde_titulo(_archivo(modelo), [it.data(0, ROL) for it in seleccion])
 
     def categoria_desde_titulo(self, nombre_archivo: str, archivos: list | None = None) -> str:
         """Crea (o completa) la categoría con el título de la película o serie; devuelve el aviso.

@@ -573,7 +573,7 @@ function itemArchivo(a) {
     icono.alt = "";
     icono.src = `/api/miniatura?id=${a.id}`;
   }
-  const li = item(a.nombre, a.carpeta, icono);
+  const li = item(a.titulo || a.nombre, a.carpeta, icono);
   li.dataset.id = a.id;
   li.classList.toggle("faltante", !a.existe);
   li.classList.toggle("elegido", app.seleccion.has(a.id));
