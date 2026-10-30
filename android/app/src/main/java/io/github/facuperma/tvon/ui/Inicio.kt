@@ -1,5 +1,8 @@
 package io.github.facuperma.tvon.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -207,11 +210,23 @@ private fun menuCartel(vm: Modelo, c: Cartel) {
         opciones += Opcion(if (c.visto) "↺ Marcar como no visto" else "✓ Marcar como visto") {
             vm.accion("visto", "ids" to listOf(id), "visto" to !c.visto); vm.cargarInicio(); vm.cargarCatalogo()
         }
+        opciones += opcionesBorrar(vm, id, c.titulo) { vm.cargarInicio(); vm.cargarCatalogo() }
     }
     if (c.tipo == "serie") opciones += Opcion("📺 Ver la serie") { vm.abrirSerie(c.clave) }
     opciones += Opcion("🎞 Corregir la ficha…") { corregirFicha(vm, c.clave, c.titulo) }
     vm.hoja = Hoja(c.titulo, opciones)
 }
+
+/** Quitar de la biblioteca (el archivo queda en la PC) o mandarlo a la Papelera de la PC. */
+private fun opcionesBorrar(vm: Modelo, id: Int, nombre: String, despues: suspend () -> Unit) = listOf(
+    Opcion("Quitar de la biblioteca", confirmar = "¿Quitar «$nombre» de la biblioteca? El archivo NO se borra de la PC.") {
+        vm.accion("quitar", "ids" to listOf(id)); despues()
+    },
+    Opcion("🗑 Eliminar de la PC", peligro = true,
+        confirmar = "¿Mandar «$nombre» a la Papelera de reciclaje de la PC? También se borran sus subtítulos.") {
+        vm.accion("eliminar", "ids" to listOf(id)); despues()
+    },
+)
 
 private fun corregirFicha(vm: Modelo, clave: String, titulo: String) {
     vm.pedirTexto = PedirTexto("Título con el que se busca la ficha (podés sumar el año, p. ej. «Dune 2021»):", titulo) { texto ->
@@ -346,7 +361,16 @@ private fun DetalleVideo(vm: Modelo, f: FichaVideo) {
                 vm.correr { vm.accion("favoritos", "ids" to listOf(f.id), "activo" to !f.favorito); vm.refrescarDetalles() }
             }
         }
-        Boton("🎞 Corregir la ficha", Modifier.fillMaxWidth()) { corregirFicha(vm, f.clave, f.titulo) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Boton("🎞 Corregir la ficha", Modifier.weight(1f)) { corregirFicha(vm, f.clave, f.titulo) }
+            Boton("🗑 Borrar…", Modifier.weight(1f)) {
+                vm.hoja = Hoja(f.titulo, opcionesBorrar(vm, f.id, f.titulo) {
+                    vm.detalles = vm.detalles.dropLast(1)
+                    if (vm.detalles.isNotEmpty()) vm.refrescarDetalles()
+                    vm.cargarInicio()
+                })
+            }
+        }
         Pista(if (f.subtitulos.isEmpty()) "Sin subtítulos junto al video (buscalos desde ▶ Control → CC)."
             else "Subtítulos: " + (f.subtitulos.firstOrNull { it.elegido }?.texto ?: "desactivados") +
                 ". En el reproductor se cambian con el botón de subtítulos.")
@@ -361,6 +385,8 @@ private fun DetalleVideo(vm: Modelo, f: FichaVideo) {
 @Composable
 fun PantallaVerAca(vm: Modelo) {
     val ver = vm.viendoAca ?: return
+    // El título y los botones de arriba aparecen y se van junto con los controles del reproductor
+    var controles by remember { mutableStateOf(true) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         androidx.compose.ui.viewinterop.AndroidView(
             factory = { contexto ->
@@ -370,12 +396,16 @@ fun PantallaVerAca(vm: Modelo) {
                     setShowSubtitleButton(true)
                     setShowNextButton(false)
                     setShowPreviousButton(false)
+                    setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { v ->
+                        controles = v == android.view.View.VISIBLE
+                    })
                 }
             },
             update = { it.player = ver.jugador },
             modifier = Modifier.fillMaxSize(),
         )
-        Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically,
+        AnimatedVisibility(controles, Modifier.align(Alignment.TopStart), enter = fadeIn(), exit = fadeOut()) {
+        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("✕") { vm.dejarDeVerAca() }
             Text(ver.ficha?.nombreLindo.orEmpty(), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -385,6 +415,7 @@ fun PantallaVerAca(vm: Modelo) {
                 Chip("⏪ 30 s") { ver.saltar(-30_000) }
                 Chip("30 s ⏩") { ver.saltar(30_000) }
             }
+        }
         }
         ver.error?.let { mensaje ->
             Column(Modifier.align(Alignment.Center).padding(24.dp).clip(RoundedCornerShape(12.dp)).background(C.panel)
