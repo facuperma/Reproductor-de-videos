@@ -46,13 +46,6 @@ fun PestanaMas(vm: Modelo) {
                 "la ventana de TVon con ON encendido, queda junto al reloj y el mouse y el teclado siguen andando.")
         }
         Tarjeta {
-            TituloTarjeta("Abrir en el navegador de la PC")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Boton("🌐 Películas", Modifier.weight(1f)) { vm.hacer("abrir_web", "sitio" to "peliculas") }
-                Boton("🌐 Subtítulos", Modifier.weight(1f)) { vm.hacer("abrir_web", "sitio" to "subtitulos") }
-            }
-        }
-        Tarjeta {
             TituloTarjeta("Biblioteca automática")
             Interruptor("Mover a Videos lo que termine de bajarse en Descargas", e?.moverDescargas ?: false) {
                 vm.hacer("mover_descargas", "activo" to it)
